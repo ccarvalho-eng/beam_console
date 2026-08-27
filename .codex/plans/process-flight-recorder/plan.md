@@ -35,13 +35,13 @@ Do not combine these into one large change. Recorder behavior and concurrency sh
 
 ### 0.1 Review and isolate the current foundation
 
-- [ ] Review the uncommitted diff and separate it from recorder behavior.
-- [ ] Keep the full Apache 2.0 license, Ancient Stones-equivalent quality aliases, CI/security workflows, Hex packaging rules, module docs, specs, and doctests.
-- [ ] Keep the extracted `BeamConsole.Runtime.Supervision` traversal and immutable state module.
-- [ ] Keep distinct DynamicSupervisor edge identities and the two-child regression test.
-- [ ] Keep native `<details>` runtime branches with disclosure preservation.
-- [ ] Keep the three-way system/light/dark control after refresh and the settled graph-camera behavior.
-- [ ] Run the complete existing precommit, coverage, demo, plain-host, npm syntax, workflow YAML, Hex build, and diff checks before committing this slice.
+- [x] Review the uncommitted diff and separate it from recorder behavior. — committed as focused runtime, web, quality, and planning checkpoints.
+- [x] Keep the full Apache 2.0 license, Ancient Stones-equivalent quality aliases, CI/security workflows, Hex packaging rules, module docs, specs, and doctests.
+- [x] Keep the extracted `BeamConsole.Runtime.Supervision` traversal and immutable state module.
+- [x] Keep distinct DynamicSupervisor edge identities and the two-child regression test.
+- [x] Keep native `<details>` runtime branches with disclosure preservation.
+- [x] Keep the three-way system/light/dark control after refresh and the settled graph-camera behavior.
+- [x] Run the complete existing precommit, coverage, demo, plain-host, npm syntax, workflow YAML, Hex build, and diff checks before committing this slice. — final coverage 83.18%; root, demo, plain-host, asset, static-analysis, security, and package checks passed.
 
 Done when the working dashboard is a clean, independently revertible base and no recorder modules exist in the slice.
 
@@ -57,10 +57,10 @@ Files:
 
 Tasks:
 
-- [ ] Define validated limits for retention, event/frame counts, watch count, reconciliation batch size, pending-slot window, tracked series, point caps, byte estimate, and lazy/always mode.
-- [ ] Reject negative or internally inconsistent limits at startup with actionable errors.
-- [ ] Keep the config Phoenix-independent and document operational tradeoffs.
-- [ ] Add table tests for defaults, overrides, invalid values, and boundary values.
+- [x] Define validated limits for retention, event/frame counts, watch count, reconciliation batch size, pending-slot window, tracked series, point caps, byte estimate, and lazy/always mode. — added `BeamConsole.Recorder.Config` with conservative hard defaults.
+- [x] Reject negative or internally inconsistent limits at startup with actionable errors. — structured validation plus raising startup loader.
+- [x] Keep the config Phoenix-independent and document operational tradeoffs.
+- [x] Add table tests for defaults, overrides, invalid values, and boundary values. — 5 focused tests pass.
 
 ### 1.2 Define compact normalized values
 
@@ -75,11 +75,11 @@ Files:
 
 Tasks:
 
-- [ ] Define typed structs for compact summary frames, safe lifecycle events, private ephemeral observations, activity samples, and allowlisted runtime samples.
-- [ ] Separate ephemeral monitor observations containing PIDs from retained/browser-safe values.
-- [ ] Add explicit evidence/certainty enums and sequence-segment metadata.
-- [ ] Implement bounded label and exit-reason sanitization with redaction, depth, collection, and byte limits.
-- [ ] Add doctests only for deterministic constructors/sanitizers.
+- [x] Define typed structs for compact summary frames, safe lifecycle events, private ephemeral observations, activity samples, and allowlisted runtime samples. — added six documented, field-typed core values.
+- [x] Separate ephemeral monitor observations containing PIDs from retained/browser-safe values. — only `Lifecycle.Observation` carries PIDs and documents its non-retention boundary.
+- [x] Add explicit evidence/certainty enums and sequence-segment metadata.
+- [x] Implement bounded label and exit-reason sanitization with redaction, depth, collection, and byte limits. — arbitrary binaries and runtime terms are represented structurally.
+- [x] Add doctests only for deterministic constructors/sanitizers. — ReasonSummary doctests pass with the existing EntityId doctests.
 
 ### 1.3 Implement pure bounded history
 
@@ -91,14 +91,14 @@ Files:
 
 Tasks:
 
-- [ ] Implement immutable append/query/eviction transitions with injected monotonic time and byte estimator.
-- [ ] Enforce age, count, series, points, total-points, and estimated-byte caps independently.
-- [ ] Reject duplicate/out-of-order sequences without mutation.
-- [ ] Start a new segment on sequence gaps or reset and prevent correlation across it.
-- [ ] Track dropped/omitted counts and available ranges.
-- [ ] Use deterministic LRU eviction with opaque entity ID as the tie-breaker.
-- [ ] Test empty, exact-cap, cap-plus-one, ten-times-cap, age boundaries, byte pressure, churn cleanup, and stale/reset behavior.
-- [ ] Require at least 95% coverage for the new pure history/query modules.
+- [x] Implement immutable append/query/eviction transitions with injected monotonic time and byte estimator. — `History` and `Query` remain process-free and deterministic under injected inputs.
+- [x] Enforce age, count, series, points, total-points, and estimated-byte caps independently.
+- [x] Reject duplicate/out-of-order sequences without mutation.
+- [x] Start a new segment on sequence gaps or reset and prevent correlation across it. — explicit bounded gap/reset events mark segment boundaries.
+- [x] Track dropped/omitted counts and available ranges.
+- [x] Use deterministic LRU eviction with opaque entity ID as the tie-breaker.
+- [x] Test empty, exact-cap, cap-plus-one, ten-times-cap, age boundaries, byte pressure, churn cleanup, and stale/reset behavior. — 48 full-suite tests and 5 doctests pass.
+- [x] Require at least 95% coverage for the new pure history/query modules. — History 99.31%, Query 100%, overall 87.55%.
 
 Done when compact frames/events can be appended and queried under all hard bounds without starting a process.
 
@@ -114,14 +114,14 @@ Files:
 
 Tasks:
 
-- [ ] Replace full diff notifications with version invalidation: one outstanding sequence and one replaceable pending sequence per subscriber.
-- [ ] Add a documented acknowledgement API and bounded `since`/resync behavior.
-- [ ] Ignore stale, duplicate, future, dead-subscriber, and cross-subscriber acknowledgements safely.
-- [ ] Pass fake-runtime owner/options per collector instance instead of using application environment.
-- [ ] Add barrier-driven tests showing 100 commits produce one stalled-subscriber message and one pending version.
-- [ ] Preserve scan non-overlap, coalesced refresh, last-good snapshot, and failure recovery.
+- [x] Replace full diff notifications with version invalidation: one outstanding sequence and one replaceable pending sequence per subscriber. — Notifications now carry only the newest committed sequence.
+- [x] Add a documented acknowledgement API and bounded `since`/resync behavior. — `acknowledge/2` and `changes_since/2` are caller-scoped and documented.
+- [x] Ignore stale, duplicate, future, dead-subscriber, and cross-subscriber acknowledgements safely. — Covered by invalid, independent-subscriber, and monitored-death tests.
+- [x] Pass fake-runtime owner/options per collector instance instead of using application environment. — Runtime fixture state is collector-local.
+- [x] Add barrier-driven tests showing 100 commits produce one stalled-subscriber message and one pending version. — A concurrent fast subscriber also proves isolation.
+- [x] Preserve scan non-overlap, coalesced refresh, last-good snapshot, and failure recovery. — Error, crash, timeout, manual-refresh, and last-good paths pass targeted tests.
 
-This is a public protocol change. Document migration behavior and keep it in its own commit.
+This is a public protocol change. Document migration behavior and keep delivery state isolated behind `Collector.Subscriber`.
 
 ### 2.2 Emit private supervision observations once
 
@@ -133,11 +133,11 @@ Files:
 
 Tasks:
 
-- [ ] Produce bounded server-only observations during the existing supervision traversal.
-- [ ] Mark stable normal-supervisor slots separately from dynamic slots.
-- [ ] Include supervisor PID, child PID/state/type/modules, stable opaque slot ID, sequence, and coverage flags only in the ephemeral handoff.
-- [ ] Never decode an entity ID or repeat `which_children/1` in the recorder.
-- [ ] Preserve partial/truncated branch metadata so certainty can only decrease.
+- [x] Produce bounded server-only observations during the existing supervision traversal. — One child-limit-bound observation is produced beside each normalized edge.
+- [x] Mark stable normal-supervisor slots separately from dynamic slots. — Stable child-spec slots persist across stopped/restarted states; dynamic children remain PID-disambiguated.
+- [x] Include supervisor PID, child PID/state/type/modules, stable opaque slot ID, sequence, and coverage flags only in the ephemeral handoff. — Modules are atom-only and capped; observations are removed before public snapshot storage.
+- [x] Never decode an entity ID or repeat `which_children/1` in the recorder. — The collector hands the original private runtime observations directly to the recorder boundary.
+- [x] Preserve partial/truncated branch metadata so certainty can only decrease. — Per-observation truncation and overall snapshot coverage travel together in the handoff.
 
 ### 2.3 Implement the supervised lifecycle recorder
 
@@ -150,14 +150,14 @@ Files:
 
 Tasks:
 
-- [ ] Supervise a recorder GenServer beside the collector.
-- [ ] Activate watches lazily with the first subscriber and stop future sampling after the last subscriber leaves; document in-flight completion.
-- [ ] Monitor only eligible local supervised PIDs, one monitor per PID, capped at 5,000 by default.
-- [ ] Reconcile at most 500 watch changes per completed snapshot and expose watched/eligible/omitted coverage.
-- [ ] Handle `:DOWN` in O(1): timestamp, sanitize/classify, append, and schedule later reconciliation only.
-- [ ] Keep watches across partial samples and require two complete omissions before removing a still-live watch.
-- [ ] Store pending stable-slot exits for the bounded correlation window.
-- [ ] Continue collector operation when the recorder is unavailable; emit a reset/gap after recovery.
+- [x] Supervise a recorder GenServer beside the collector. — The public facade returns only PID-free status and bounded event queries.
+- [x] Activate watches lazily with the first subscriber and stop future sampling after the last subscriber leaves; document in-flight completion. — `:always` mode now also drives collector sampling without viewers.
+- [x] Monitor only eligible local supervised PIDs, one monitor per PID, capped at 5,000 by default. — Dynamic children are watched for direct exits but excluded from stable-slot candidates.
+- [x] Reconcile at most 500 watch changes per completed snapshot and expose watched/eligible/omitted coverage. — Deferred work is reported separately from hard-cap omissions.
+- [x] Handle `:DOWN` in O(1): timestamp, sanitize/classify, append, and schedule later reconciliation only. — Bounded history enforcement runs in a deferred mailbox turn.
+- [x] Keep watches across partial samples and require two complete omissions before removing a still-live watch. — Barrier tests cover partial, truncated, first-complete, and second-complete frames.
+- [x] Store pending stable-slot exits for the bounded correlation window. — Pending values are private, watch-capped, and expire at a documented inclusive boundary.
+- [x] Continue collector operation when the recorder is unavailable; emit a reset/gap after recovery. — Each handoff reasserts activation; missed delivery and opaque collector-epoch changes force a reset boundary.
 
 ### 2.4 Implement conservative pure correlation
 
