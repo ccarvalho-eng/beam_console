@@ -7,14 +7,13 @@ defmodule BeamConsoleWeb.Console.Params do
   """
 
   @tabs [:process_map, :lifecycle, :activity, :runtime]
-  @kinds ~w(all terminated replacement_observed recording_started reset gap connection_lost)
+  @kinds ~w(all terminated replacement_observed recording_started reset gap)
   @windows ~w(1m 5m 15m)
   @edges ~w(supervision relationships)
 
   defstruct tab: :process_map,
             query: "",
             selected_id: nil,
-            node_id: nil,
             kind: "all",
             window: "5m",
             edges: "supervision"
@@ -24,14 +23,13 @@ defmodule BeamConsoleWeb.Console.Params do
           tab: tab(),
           query: String.t(),
           selected_id: String.t() | nil,
-          node_id: String.t() | nil,
           kind: String.t(),
           window: String.t(),
           edges: String.t()
         }
 
-  @spec normalize(map(), atom()) :: t()
   @doc "Returns safe URL state for a trusted router live action."
+  @spec normalize(map(), atom()) :: t()
   def normalize(params, live_action) when is_map(params) do
     tab = if live_action in @tabs, do: live_action, else: :process_map
 
@@ -39,30 +37,22 @@ defmodule BeamConsoleWeb.Console.Params do
       tab: tab,
       query: bounded_string(params["q"], 120, ""),
       selected_id: optional_string(params["entity"], 160),
-      node_id: optional_string(params["node"], 160),
       kind: allowed(params["kind"], @kinds, "all"),
       window: allowed(params["window"], @windows, "5m"),
       edges: allowed(params["edges"], @edges, "supervision")
     }
   end
 
-  @spec query_params(t()) :: map()
   @doc "Returns only URL parameters relevant to the normalized active tab."
+  @spec query_params(t()) :: map()
   def query_params(%__MODULE__{} = params) do
     %{}
     |> maybe_put("entity", params.selected_id)
-    |> maybe_put("node", params.node_id)
     |> tab_params(params)
   end
 
-  @spec kind_values() :: [String.t()]
-  @doc "Returns the lifecycle event-kind values accepted from URLs."
-  def kind_values do
-    @kinds
-  end
-
-  @spec window_ms(t()) :: pos_integer()
   @doc "Returns the normalized chart window in milliseconds."
+  @spec window_ms(t()) :: pos_integer()
   def window_ms(%__MODULE__{window: "1m"}) do
     60_000
   end

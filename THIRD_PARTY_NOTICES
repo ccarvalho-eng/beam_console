@@ -1,4 +1,9 @@
 BeamConsole's browser graph uses Cytoscape.js, licensed under the MIT License.
 
-The bundled artifact is built from Cytoscape.js 3.33.x. The complete license
+The bundled artifact is built from Cytoscape.js 3.34.2. The complete license
 text is included at `priv/static/CYTOSCAPE_LICENSE`.
+
+BeamConsole serves the browser modules distributed with Phoenix and Phoenix
+LiveView. Both projects are licensed under the MIT License. Their complete
+license texts are included at `priv/static/PHOENIX_LICENSE` and
+`priv/static/PHOENIX_LIVE_VIEW_LICENSE`.

@@ -25,13 +25,9 @@ defmodule BeamConsole.Recorder.Status do
             history: %{
               frame_count: 0,
               event_count: 0,
-              series_count: 0,
-              point_count: 0,
               estimated_bytes: 0,
               dropped_events: 0,
               dropped_frames: 0,
-              dropped_points: 0,
-              dropped_series: 0,
               last_sequence: nil,
               segment: 0
             }

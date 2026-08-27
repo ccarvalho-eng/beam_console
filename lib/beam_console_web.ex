@@ -7,8 +7,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     The module is compiled only when Phoenix LiveView is available.
     """
 
-    @spec live_view() :: Macro.t()
     @doc "Returns the shared imports and aliases for BeamConsole LiveViews."
+    @spec live_view() :: Macro.t()
     def live_view do
       quote do
         use Phoenix.LiveView
@@ -19,8 +19,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end
     end
 
-    @spec html() :: Macro.t()
     @doc "Returns the shared imports for BeamConsole function components."
+    @spec html() :: Macro.t()
     def html do
       quote do
         use Phoenix.Component

@@ -12,7 +12,6 @@ defmodule BeamConsole.Series.Downsampler do
           optional(:segment) => non_neg_integer()
         }
 
-  @spec downsample([point()], pos_integer()) :: [point()]
   @doc """
   Applies Largest-Triangle-Three-Buckets downsampling to an ordered series.
 
@@ -23,6 +22,7 @@ defmodule BeamConsole.Series.Downsampler do
       iex> {length(result), hd(result).value, List.last(result).value}
       {4, 1, 10}
   """
+  @spec downsample([point()], pos_integer()) :: [point()]
   def downsample(points, limit) when is_list(points) and is_integer(limit) and limit > 0 do
     cond do
       length(points) <= limit -> points

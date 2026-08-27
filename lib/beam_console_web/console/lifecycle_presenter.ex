@@ -11,8 +11,7 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
     "replacement_observed" => [:replacement_observed],
     "recording_started" => [:recording_started],
     "reset" => [:reset],
-    "gap" => [:gap],
-    "connection_lost" => [:connection_lost]
+    "gap" => [:gap]
   }
 
   @type row :: %{
@@ -27,8 +26,8 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
           reason: String.t() | nil
         }
 
-  @spec query_options(Params.t()) :: keyword()
   @doc "Returns bounded recorder query options for normalized lifecycle URL state."
+  @spec query_options(Params.t()) :: keyword()
   def query_options(%Params{} = params) do
     since_ms = System.system_time(:millisecond) - Params.window_ms(params)
 
@@ -36,8 +35,8 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
     |> maybe_put_kinds(Map.get(@kind_atoms, params.kind))
   end
 
-  @spec rows(Query.t(), String.t()) :: [row()]
   @doc "Converts a bounded recorder query into newest-first scalar timeline rows."
+  @spec rows(Query.t(), String.t()) :: [row()]
   def rows(%Query{} = query, search_query \\ "") do
     normalized = search_query |> String.trim() |> String.downcase()
 
@@ -46,8 +45,14 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
     |> Enum.map(&row/1)
   end
 
-  @spec activity_label(Status.t()) :: String.t()
+  @doc "Counts view omissions plus lifecycle changes represented by retained gap events."
+  @spec omitted_count(Query.t()) :: non_neg_integer()
+  def omitted_count(%Query{} = query) do
+    query.omitted + query.dropped + Enum.reduce(query.items, 0, &add_gap_omissions/2)
+  end
+
   @doc "Returns concise operator-facing recorder activity text."
+  @spec activity_label(Status.t()) :: String.t()
   def activity_label(%Status{activity: :recording}) do
     "Recording"
   end
@@ -72,6 +77,15 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
       certainty: Atom.to_string(event.certainty),
       reason: event.reason && event.reason.text
     }
+  end
+
+  defp add_gap_omissions(%Event{kind: :gap, details: %{omitted: omitted}}, total)
+       when is_integer(omitted) and omitted > 0 do
+    total + omitted
+  end
+
+  defp add_gap_omissions(_event, total) do
+    total
   end
 
   defp match_search?(_event, "") do

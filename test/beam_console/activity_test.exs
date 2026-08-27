@@ -32,6 +32,7 @@ defmodule BeamConsole.ActivityTest do
     %Snapshot{
       sequence: sequence,
       sampled_at: DateTime.add(~U[2026-01-01 00:00:00Z], offset_ms, :millisecond),
+      monotonic_ms: offset_ms,
       local_node_id: "node",
       processes: Map.new(processes, &{&1.id, &1})
     }

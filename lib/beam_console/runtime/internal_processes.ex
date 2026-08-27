@@ -8,8 +8,8 @@ defmodule BeamConsole.Runtime.InternalProcesses do
 
   alias BeamConsole.Lifecycle.Observation
 
-  @spec task_supervisor_pid(GenServer.server()) :: pid() | nil
   @doc "Resolves the current PID for BeamConsole's sampling task supervisor."
+  @spec task_supervisor_pid(GenServer.server()) :: pid() | nil
   def task_supervisor_pid(server) do
     case GenServer.whereis(server) do
       pid when is_pid(pid) -> pid
@@ -19,8 +19,8 @@ defmodule BeamConsole.Runtime.InternalProcesses do
     :exit, _reason -> nil
   end
 
-  @spec reject_probe_observations([Observation.t()], GenServer.server()) :: [Observation.t()]
   @doc "Removes lifecycle observations for children owned by the sampling task supervisor."
+  @spec reject_probe_observations([Observation.t()], GenServer.server()) :: [Observation.t()]
   def reject_probe_observations(observations, task_supervisor) do
     case task_supervisor_pid(task_supervisor) do
       pid when is_pid(pid) ->

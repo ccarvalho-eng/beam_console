@@ -45,6 +45,25 @@ defmodule BeamConsoleTest do
     assert diff.observed_stopped == []
   end
 
+  test "diffs preserve omission counts by change category" do
+    first =
+      snapshot(1, %{
+        "proc-old-a" => process("proc-old-a", 1),
+        "proc-old-b" => process("proc-old-b", 1)
+      })
+
+    second =
+      snapshot(2, %{
+        "proc-new-a" => process("proc-new-a", 1),
+        "proc-new-b" => process("proc-new-b", 1)
+      })
+
+    diff = Diff.between(first, second, 1)
+
+    assert diff.omitted == 3
+    assert diff.omitted_by == %{observed_started: 1, observed_stopped: 2}
+  end
+
   test "search is bounded and matches process metadata" do
     snapshot = snapshot(1, %{"proc" => process("proc", 1)})
 

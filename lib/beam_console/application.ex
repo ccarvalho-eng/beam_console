@@ -8,7 +8,7 @@ defmodule BeamConsole.Application do
 
   use Application
 
-  @impl true
+  @impl Application
   def start(_type, _args) do
     recorder_config = BeamConsole.Config.recorder()
 

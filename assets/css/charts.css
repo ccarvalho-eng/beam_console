@@ -1,0 +1,121 @@
+.beam-console-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.beam-console-chart-card {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: var(--bc-surface);
+}
+
+.beam-console-chart-card figcaption {
+  display: flex;
+  min-height: 28px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--bc-text);
+}
+
+.beam-console-chart-card figcaption span {
+  color: var(--bc-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.beam-console-chart-card svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.beam-console-chart-gridline {
+  stroke: var(--bc-border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.beam-console-chart-line {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.beam-console-chart-legend {
+  display: flex;
+  min-height: 20px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--bc-muted);
+  font-size: 11px;
+}
+
+.beam-console-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.beam-console-chart-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.beam-console-movers {
+  margin: 0 16px 16px;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.beam-console-movers h2 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--bc-border);
+  font-size: 12px;
+}
+
+.beam-console-mover-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--bc-border);
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.beam-console-mover-row:hover,
+.beam-console-mover-row:focus-visible {
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-mover-row span,
+.beam-console-mover-row small {
+  display: block;
+}
+
+.beam-console-mover-row small {
+  margin-top: 2px;
+  color: var(--bc-muted);
+  font-size: 11px;
+}
+
+.beam-console-mover-row b {
+  font-variant-numeric: tabular-nums;
+}
+

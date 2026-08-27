@@ -3,11 +3,13 @@ defmodule BeamConsoleDemo.ProcessLab.EphemeralWorker do
 
   use GenServer
 
+  @doc "Starts an unnamed temporary demo worker."
+  @spec start_link(term()) :: GenServer.on_start()
   def start_link(child_id) do
     GenServer.start_link(__MODULE__, child_id)
   end
 
-  @impl true
+  @impl GenServer
   def init(child_id) do
     {:ok, %{child_id: child_id}}
   end

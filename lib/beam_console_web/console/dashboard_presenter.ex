@@ -12,8 +12,8 @@ defmodule BeamConsoleWeb.Console.DashboardPresenter do
           omitted_count: non_neg_integer()
         }
 
-  @spec process_result(Snapshot.t(), String.t(), pos_integer()) :: process_result()
   @doc "Returns sorted process rows plus exact matching and omission counts."
+  @spec process_result(Snapshot.t(), String.t(), pos_integer()) :: process_result()
   def process_result(%Snapshot{} = snapshot, query, limit) do
     normalized_query = query |> String.trim() |> String.downcase()
 
@@ -30,24 +30,24 @@ defmodule BeamConsoleWeb.Console.DashboardPresenter do
     }
   end
 
-  @spec applications(Snapshot.t()) :: [ApplicationInfo.t()]
   @doc "Returns started applications in deterministic display order."
+  @spec applications(Snapshot.t()) :: [ApplicationInfo.t()]
   def applications(%Snapshot{} = snapshot) do
     snapshot.applications
     |> Map.values()
     |> Enum.sort_by(& &1.name)
   end
 
-  @spec nodes(Snapshot.t()) :: [NodeInfo.t()]
   @doc "Returns local and connected nodes in deterministic display order."
+  @spec nodes(Snapshot.t()) :: [NodeInfo.t()]
   def nodes(%Snapshot{} = snapshot) do
     snapshot.nodes
     |> Map.values()
     |> Enum.sort_by(&{&1.kind, &1.name})
   end
 
-  @spec selection(Snapshot.t(), String.t() | nil) :: map() | nil
   @doc "Returns a bounded selected-entity view model without retaining the snapshot."
+  @spec selection(Snapshot.t(), String.t() | nil) :: map() | nil
   def selection(_snapshot, nil) do
     nil
   end
@@ -61,8 +61,8 @@ defmodule BeamConsoleWeb.Console.DashboardPresenter do
     end
   end
 
-  @spec valid_selection?(Snapshot.t() | nil, String.t()) :: boolean()
   @doc "Checks whether an opaque entity ID belongs to the latest snapshot."
+  @spec valid_selection?(Snapshot.t() | nil, String.t()) :: boolean()
   def valid_selection?(%Snapshot{} = snapshot, entity_id) when is_binary(entity_id) do
     Map.has_key?(snapshot.index, entity_id)
   end

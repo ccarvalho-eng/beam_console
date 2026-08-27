@@ -7,7 +7,7 @@ defmodule BeamConsole.Recorder.QueryTest do
   alias BeamConsole.Recorder.Query
 
   test "frames are newest first and honor the bounded time window" do
-    config = Config.new!(frame_limit: 3)
+    config = Config.new!(frame_limit: 3, chart_points_limit: 17)
     history = History.new(config)
 
     history =
@@ -18,7 +18,7 @@ defmodule BeamConsole.Recorder.QueryTest do
           monotonic_ms: sequence * 1_000
         }
 
-        {:ok, result} = History.append(result, frame, [], [], now_ms: sequence * 1_000)
+        {:ok, result} = History.append(result, frame, [], now_ms: sequence * 1_000)
         result
       end)
 
@@ -26,5 +26,6 @@ defmodule BeamConsole.Recorder.QueryTest do
 
     assert Enum.map(query.items, & &1.sequence) == [4, 3]
     assert query.dropped == 1
+    assert query.chart_points_limit == 17
   end
 end

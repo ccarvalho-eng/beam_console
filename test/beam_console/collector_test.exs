@@ -11,7 +11,7 @@ defmodule BeamConsole.CollectorTest do
   defmodule FakeRuntime do
     @behaviour BeamConsole.Runtime.Adapter
 
-    @impl true
+    @impl BeamConsole.Runtime.Adapter
     def snapshot(options) do
       owner = Keyword.fetch!(options, :owner)
       send(owner, {:scan_started, Keyword.fetch!(options, :sequence), self()})
@@ -40,6 +40,51 @@ defmodule BeamConsole.CollectorTest do
          sampled_at: DateTime.utc_now(),
          local_node_id: "node",
          lifecycle_observations: observations,
+         coverage: %Coverage{}
+       }}
+    end
+  end
+
+  defmodule BlockingSupervisor do
+    use GenServer
+
+    def start_link(owner) do
+      GenServer.start_link(__MODULE__, owner)
+    end
+
+    @impl GenServer
+    def init(owner) do
+      {:ok, owner}
+    end
+
+    @impl GenServer
+    def handle_call(:which_children, _from, owner) do
+      send(owner, :blocking_supervisor_called)
+      {:noreply, owner}
+    end
+  end
+
+  defmodule ProbeRuntime do
+    @behaviour BeamConsole.Runtime.Adapter
+
+    alias BeamConsole.Coverage
+    alias BeamConsole.Runtime.Supervision
+    alias BeamConsole.Snapshot
+
+    @impl BeamConsole.Runtime.Adapter
+    def snapshot(options) do
+      owner = Keyword.fetch!(options, :owner)
+      sequence = Keyword.fetch!(options, :sequence)
+      supervisor = Keyword.fetch!(options, :blocking_supervisor)
+      send(owner, {:probe_scan_started, sequence})
+
+      _result = Supervision.collect([{:fixture, supervisor}], node(), options)
+
+      {:ok,
+       %Snapshot{
+         sequence: sequence,
+         sampled_at: DateTime.utc_now(),
+         local_node_id: "node",
          coverage: %Coverage{}
        }}
     end
@@ -78,6 +123,19 @@ defmodule BeamConsole.CollectorTest do
     refute_receive {:beam_console_snapshot, 2}
 
     assert :ok = Collector.acknowledge(1, collector)
+    assert_receive {:beam_console_snapshot, 2}
+  end
+
+  test "repeat subscription resets outstanding delivery state", %{collector: collector} do
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, :release)
+    assert_receive {:beam_console_snapshot, 1}
+
+    assert {:ok, %Snapshot{sequence: 1}} = Collector.subscribe(collector)
+    Collector.refresh(collector)
+    assert_receive {:scan_started, 2, scanner}
+    send(scanner, :release)
     assert_receive {:beam_console_snapshot, 2}
   end
 
@@ -147,7 +205,9 @@ defmodule BeamConsole.CollectorTest do
     assert options[:reset?] == false
     assert is_binary(options[:source_epoch])
 
-    assert Collector.latest_snapshot(collector).lifecycle_observations == []
+    snapshot = Collector.latest_snapshot(collector)
+    assert snapshot.lifecycle_observations == []
+    assert snapshot.collector_epoch == options[:source_epoch]
   end
 
   test "does not send sampling task observations to the lifecycle recorder", %{
@@ -398,7 +458,7 @@ defmodule BeamConsole.CollectorTest do
              sequence: 1,
              stale?: true,
              scanning?: false,
-             last_error: %BeamConsole.ReasonSummary{text: "runtime_unavailable"}
+             last_error: %BeamConsole.ReasonSummary{text: "atom"}
            } = Collector.status(collector)
 
     assert Collector.latest_snapshot(collector).stale?
@@ -409,7 +469,7 @@ defmodule BeamConsole.CollectorTest do
 
     state = :sys.get_state(collector)
     assert state.snapshot.sequence == 1
-    assert state.last_error == :runtime_unavailable
+    assert %BeamConsole.ReasonSummary{text: "atom"} = state.last_error
     send(recovery_scanner, :release)
     assert_receive {:beam_console_snapshot, 2}
     assert eventually(fn -> :sys.get_state(collector).last_error == nil end)
@@ -427,7 +487,9 @@ defmodule BeamConsole.CollectorTest do
     assert :ok = Collector.acknowledge(0, collector)
     Collector.refresh(collector)
     assert_receive {:scan_started, 1, recovery_scanner}
-    assert :sys.get_state(collector).last_error == :runtime_crash
+
+    assert %BeamConsole.ReasonSummary{text: "atom"} =
+             :sys.get_state(collector).last_error
 
     send(recovery_scanner, :release)
     assert_receive {:beam_console_snapshot, 1}
@@ -459,10 +521,54 @@ defmodule BeamConsole.CollectorTest do
 
     Collector.refresh(collector)
     assert_receive {:scan_started, 1, recovery_scanner}
-    assert :sys.get_state(collector).last_error == :scan_timeout
+
+    assert %BeamConsole.ReasonSummary{text: "atom"} =
+             :sys.get_state(collector).last_error
 
     send(recovery_scanner, :release)
     assert_receive {:beam_console_snapshot, 1}
+  end
+
+  test "scan timeouts terminate nested supervision probes" do
+    blocking_supervisor = start_supervised!({BlockingSupervisor, self()})
+    baseline = length(Task.Supervisor.children(BeamConsole.TaskSupervisor))
+    name = Module.concat(__MODULE__, "ProbeTimeoutCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: ProbeRuntime,
+           runtime_options: [owner: self(), blocking_supervisor: blocking_supervisor],
+           interval: 60_000,
+           scan_timeout: 20,
+           supervisor_timeout: 60_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert {:ok, nil} = Collector.subscribe(collector)
+
+    Enum.each(1..3, fn attempt ->
+      if attempt > 1 do
+        Collector.refresh(collector)
+      end
+
+      assert_receive {:probe_scan_started, 1}
+
+      if attempt == 1 do
+        assert_receive :blocking_supervisor_called
+      end
+
+      assert_receive {:beam_console_snapshot, 0}
+      assert :ok = Collector.acknowledge(0, collector)
+
+      assert eventually(fn ->
+               length(Task.Supervisor.children(BeamConsole.TaskSupervisor)) == baseline
+             end)
+    end)
   end
 
   test "does not recursively resample when internal probe tasks exit" do

@@ -13,8 +13,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:recorder_activity, :atom, required: true)
     attr(:refresh_pending?, :boolean, default: false)
 
-    @spec header(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders the dashboard header with tabs, recording controls, refresh, and theme selection."
+    @spec header(map()) :: Phoenix.LiveView.Rendered.t()
     def header(assigns) do
       ~H"""
       <header class="beam-console-header">
@@ -49,11 +49,14 @@ if Code.ensure_loaded?(Phoenix.Component) do
           <span class={["beam-console-status", "is-#{@status_state}"]}>{@status_label}</span>
 
           <.form
-            :if={@tab in [:process_map, :lifecycle]}
             for={@filter_form}
             id="beam-console-search"
-            class="beam-console-search-form"
+            class={[
+              "beam-console-search-form",
+              @tab not in [:process_map, :lifecycle] && "is-placeholder"
+            ]}
             phx-change="search"
+            aria-hidden={@tab not in [:process_map, :lifecycle]}
           >
             <svg class="beam-console-search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="11" cy="11" r="6.5" />
@@ -68,6 +71,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
               placeholder={if(@tab == :lifecycle, do: "Search events", else: "Search processes")}
               phx-debounce="250"
               autocomplete="off"
+              disabled={@tab not in [:process_map, :lifecycle]}
             />
           </.form>
 
@@ -109,8 +113,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             data-tooltip="Refresh sample"
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M20 7v5h-5" />
-              <path d="M18.2 16.5A8 8 0 1 1 19.7 9L20 12" />
+              <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
           </button>
 
@@ -136,8 +139,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:label, :string, required: true)
     slot(:inner_block, required: true)
 
-    @spec theme_button(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders one option in the system/light/dark theme control."
+    @spec theme_button(map()) :: Phoenix.LiveView.Rendered.t()
     def theme_button(assigns) do
       ~H"""
       <button

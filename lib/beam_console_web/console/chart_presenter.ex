@@ -4,13 +4,20 @@ defmodule BeamConsoleWeb.Console.ChartPresenter do
   alias BeamConsole.Recorder.Frame
   alias BeamConsole.Series.Downsampler
 
-  @point_limit 240
-
   @type getter :: (Frame.t() -> number() | nil)
+  @type series_definition :: %{
+          key: atom(),
+          label: String.t(),
+          unit: String.t(),
+          point_limit: pos_integer()
+        }
+  @type chart_definition :: %{id: String.t(), title: String.t(), unit: String.t()}
 
-  @spec series([Frame.t()], atom(), String.t(), String.t(), getter()) :: map()
   @doc "Builds one chronologically ordered, gap-aware, downsampled chart series."
-  def series(frames, key, label, unit, getter) when is_function(getter, 1) do
+  @spec series([Frame.t()], series_definition(), getter()) :: map()
+  def series(frames, definition, getter) when is_function(getter, 1) do
+    point_limit = Map.fetch!(definition, :point_limit)
+
     points =
       frames
       |> Enum.reverse()
@@ -23,21 +30,17 @@ defmodule BeamConsoleWeb.Console.ChartPresenter do
             []
         end
       end)
-      |> Downsampler.downsample(@point_limit)
+      |> Downsampler.downsample(point_limit)
       |> Enum.map(&[&1.sampled_at_ms, &1.value, &1.segment])
 
-    %{key: key, label: label, unit: unit, points: points}
+    definition
+    |> Map.delete(:point_limit)
+    |> Map.put(:points, points)
   end
 
-  @spec chart(String.t(), String.t(), String.t(), [map()], non_neg_integer()) :: map()
   @doc "Wraps one or more series in a revisioned browser chart payload."
-  def chart(id, title, unit, series, revision) do
-    %{
-      id: id,
-      title: title,
-      unit: unit,
-      revision: revision,
-      series: series
-    }
+  @spec chart(chart_definition(), [map()], non_neg_integer()) :: map()
+  def chart(definition, series, revision) do
+    Map.merge(definition, %{revision: revision, series: series})
   end
 end

@@ -12,7 +12,23 @@ defmodule BeamConsole.ReasonSummary do
   @type category :: :normal | :shutdown | :killed | :missing | :connection | :error
   @type t :: %__MODULE__{category: category(), text: String.t()}
 
-  @spec sanitize(term(), keyword()) :: t()
+  @safe_atoms [
+    :badarg,
+    :badmatch,
+    :case_clause,
+    :error,
+    :function_clause,
+    :killed,
+    :noconnection,
+    :noproc,
+    :normal,
+    :shutdown,
+    :timeout,
+    :undef
+  ]
+
+  @list_shape_limit 32
+
   @doc """
   Returns a categorized structural summary under a byte limit.
 
@@ -25,6 +41,7 @@ defmodule BeamConsole.ReasonSummary do
       iex> {summary.category, summary.text}
       {:error, "{badmatch, binary(6 bytes)}"}
   """
+  @spec sanitize(term(), keyword()) :: t()
   def sanitize(reason, options \\ []) do
     max_bytes = positive_option(options, :max_bytes, 160)
     max_depth = positive_option(options, :max_depth, 3)
@@ -36,36 +53,68 @@ defmodule BeamConsole.ReasonSummary do
     }
   end
 
-  defp category(:normal), do: :normal
-  defp category(:shutdown), do: :shutdown
-  defp category({:shutdown, _detail}), do: :shutdown
-  defp category(:killed), do: :killed
-  defp category(:noproc), do: :missing
-  defp category(:noconnection), do: :connection
-  defp category(_reason), do: :error
+  defp category(:normal) do
+    :normal
+  end
 
-  defp render(:normal, _depth, _max_depth, _max_items), do: "normal"
-  defp render(:shutdown, _depth, _max_depth, _max_items), do: "shutdown"
-  defp render({:shutdown, _detail}, _depth, _max_depth, _max_items), do: "shutdown"
+  defp category(:shutdown) do
+    :shutdown
+  end
+
+  defp category({:shutdown, _detail}) do
+    :shutdown
+  end
+
+  defp category(:killed) do
+    :killed
+  end
+
+  defp category(:noproc) do
+    :missing
+  end
+
+  defp category(:noconnection) do
+    :connection
+  end
+
+  defp category(_reason) do
+    :error
+  end
+
+  defp render(:normal, _depth, _max_depth, _max_items) do
+    "normal"
+  end
+
+  defp render(:shutdown, _depth, _max_depth, _max_items) do
+    "shutdown"
+  end
+
+  defp render({:shutdown, _detail}, _depth, _max_depth, _max_items) do
+    "shutdown"
+  end
 
   defp render(value, _depth, _max_depth, _max_items) when is_binary(value) do
     "binary(#{byte_size(value)} bytes)"
   end
 
-  defp render(value, _depth, _max_depth, _max_items) when is_atom(value) do
+  defp render(value, _depth, _max_depth, _max_items) when value in @safe_atoms do
     Atom.to_string(value)
   end
 
+  defp render(value, _depth, _max_depth, _max_items) when is_atom(value) do
+    "atom"
+  end
+
   defp render(value, _depth, _max_depth, _max_items) when is_integer(value) do
-    Integer.to_string(value)
+    "integer"
   end
 
   defp render(value, _depth, _max_depth, _max_items) when is_float(value) do
-    Float.to_string(value)
+    "float"
   end
 
   defp render(%{__struct__: module}, _depth, _max_depth, _max_items) when is_atom(module) do
-    "#{inspect(module)} exception"
+    "exception"
   end
 
   defp render(value, depth, max_depth, max_items) when is_tuple(value) do
@@ -87,11 +136,25 @@ defmodule BeamConsole.ReasonSummary do
     list_summary(value)
   end
 
-  defp render(value, _depth, _max_depth, _max_items) when is_pid(value), do: "pid"
-  defp render(value, _depth, _max_depth, _max_items) when is_reference(value), do: "reference"
-  defp render(value, _depth, _max_depth, _max_items) when is_port(value), do: "port"
-  defp render(value, _depth, _max_depth, _max_items) when is_function(value), do: "function"
-  defp render(_value, _depth, _max_depth, _max_items), do: "opaque"
+  defp render(value, _depth, _max_depth, _max_items) when is_pid(value) do
+    "pid"
+  end
+
+  defp render(value, _depth, _max_depth, _max_items) when is_reference(value) do
+    "reference"
+  end
+
+  defp render(value, _depth, _max_depth, _max_items) when is_port(value) do
+    "port"
+  end
+
+  defp render(value, _depth, _max_depth, _max_items) when is_function(value) do
+    "function"
+  end
+
+  defp render(_value, _depth, _max_depth, _max_items) do
+    "opaque"
+  end
 
   defp positive_option(options, key, default) do
     case Keyword.get(options, key, default) do
@@ -104,7 +167,7 @@ defmodule BeamConsole.ReasonSummary do
     case bounded_list_shape(value, 0) do
       {:proper, length} -> "list(#{length} items)"
       {:improper, length} -> "improper_list(#{length} heads)"
-      :truncated -> "list(more than 10000 items)"
+      :truncated -> "list(more than #{@list_shape_limit} items)"
     end
   end
 
@@ -112,7 +175,7 @@ defmodule BeamConsole.ReasonSummary do
     {:proper, length}
   end
 
-  defp bounded_list_shape([_head | _tail], 10_000) do
+  defp bounded_list_shape([_head | _tail], @list_shape_limit) do
     :truncated
   end
 
@@ -129,7 +192,8 @@ defmodule BeamConsole.ReasonSummary do
   end
 
   defp truncate(value, max_bytes) do
-    allowance = max(max_bytes - byte_size("…"), 0)
+    suffix = truncation_suffix(max_bytes)
+    allowance = max_bytes - byte_size(suffix)
 
     value
     |> String.graphemes()
@@ -140,6 +204,14 @@ defmodule BeamConsole.ReasonSummary do
         {:halt, result}
       end
     end)
-    |> Kernel.<>("…")
+    |> Kernel.<>(suffix)
+  end
+
+  defp truncation_suffix(max_bytes) when max_bytes < 3 do
+    String.duplicate(".", max_bytes)
+  end
+
+  defp truncation_suffix(_max_bytes) do
+    "…"
   end
 end

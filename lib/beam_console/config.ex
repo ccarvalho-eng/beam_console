@@ -17,6 +17,7 @@ defmodule BeamConsole.Config do
     topology_depth: 32,
     children_limit: 10_000,
     supervisor_timeout: 100,
+    detail_timeout: 100,
     diff_limit: 500,
     relationship_limit: 200,
     refresh_cooldown: 250
@@ -28,23 +29,24 @@ defmodule BeamConsole.Config do
     :topology_depth,
     :children_limit,
     :supervisor_timeout,
+    :detail_timeout,
     :relationship_limit
   ]
 
   @non_negative_fields [:refresh_cooldown]
 
-  @spec defaults() :: keyword()
   @doc "Returns the default collector limits and sampling intervals."
+  @spec defaults() :: keyword()
   def defaults do
     @defaults
   end
 
-  @spec collector(keyword()) :: keyword()
   @doc """
   Loads validated `:beam_console, :collector` configuration and applies overrides.
 
   Runtime overrides take precedence over application configuration.
   """
+  @spec collector(keyword()) :: keyword()
   def collector(overrides \\ []) do
     configured = Application.get_env(:beam_console, :collector, [])
 
@@ -62,26 +64,26 @@ defmodule BeamConsole.Config do
     end
   end
 
-  @spec collector_keys() :: [atom()]
   @doc "Returns the supported collector configuration keys."
+  @spec collector_keys() :: [atom()]
   def collector_keys do
     Keyword.keys(@defaults)
   end
 
-  @spec runtime_keys() :: [atom()]
   @doc "Returns the collector settings forwarded to the runtime adapter."
+  @spec runtime_keys() :: [atom()]
   def runtime_keys do
     @runtime_keys
   end
 
-  @spec get(keyword(), atom()) :: term()
   @doc "Returns an explicit option value or the corresponding default."
+  @spec get(keyword(), atom()) :: term()
   def get(options, key) do
     Keyword.get(options, key, Keyword.fetch!(@defaults, key))
   end
 
-  @spec recorder(keyword()) :: RecorderConfig.t()
   @doc "Loads validated flight-recorder configuration with optional runtime overrides."
+  @spec recorder(keyword()) :: RecorderConfig.t()
   def recorder(overrides \\ []) do
     RecorderConfig.load(overrides)
   end

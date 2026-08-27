@@ -35,7 +35,9 @@ defmodule BeamConsoleWeb.AssetsTest do
     assets = [
       {&Assets.js/2, Assets.js_digest(), "LiveSocket"},
       {&Assets.phoenix/2, Assets.phoenix_digest(), "Socket"},
-      {&Assets.live_view/2, Assets.live_view_digest(), "LiveSocket"}
+      {&Assets.live_view/2, Assets.live_view_digest(), "LiveSocket"},
+      {&Assets.support/2, Assets.support_digest(), "readStoredTheme"},
+      {&Assets.theme/2, Assets.theme_digest(), "phx:theme"}
     ]
 
     Enum.each(assets, fn {serve, digest, expected_source} ->
@@ -53,7 +55,15 @@ defmodule BeamConsoleWeb.AssetsTest do
 
   test "rejects stale digests for every embedded asset" do
     Enum.each(
-      [&Assets.css/2, &Assets.js/2, &Assets.phoenix/2, &Assets.live_view/2, &Assets.cytoscape/2],
+      [
+        &Assets.css/2,
+        &Assets.js/2,
+        &Assets.phoenix/2,
+        &Assets.live_view/2,
+        &Assets.cytoscape/2,
+        &Assets.support/2,
+        &Assets.theme/2
+      ],
       fn serve ->
         conn = "stale" |> asset_conn() |> serve.(%{})
 
@@ -61,6 +71,16 @@ defmodule BeamConsoleWeb.AssetsTest do
         assert conn.resp_body == "Not Found"
       end
     )
+  end
+
+  test "main client imports every digest-addressed dependency without placeholders" do
+    conn = Assets.js(asset_conn(Assets.js_digest()), %{})
+
+    assert conn.resp_body =~ "../phoenix/#{Assets.phoenix_digest()}"
+    assert conn.resp_body =~ "../live-view/#{Assets.live_view_digest()}"
+    assert conn.resp_body =~ "../cytoscape/#{Assets.cytoscape_digest()}"
+    assert conn.resp_body =~ "../support/#{Assets.support_digest()}"
+    refute conn.resp_body =~ ~r/__[A-Z_]+_DIGEST__/
   end
 
   defp asset_conn(digest) do

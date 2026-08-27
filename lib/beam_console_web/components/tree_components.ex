@@ -10,8 +10,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:selected_id, :string, default: nil)
     attr(:coverage_warnings, :list, default: [])
 
-    @spec runtime_tree(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders nodes and application categories as stable native disclosure branches."
+    @spec runtime_tree(map()) :: Phoenix.LiveView.Rendered.t()
     def runtime_tree(assigns) do
       ~H"""
       <aside class="beam-console-sidebar" aria-label="Runtime hierarchy">

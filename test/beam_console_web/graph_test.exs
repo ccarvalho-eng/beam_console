@@ -5,6 +5,7 @@ defmodule BeamConsoleWeb.GraphTest do
   alias BeamConsole.Coverage
   alias BeamConsole.NodeInfo
   alias BeamConsole.ProcessInfo
+  alias BeamConsole.ProcessRelation
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
   alias BeamConsole.SupervisionEdge
@@ -12,7 +13,7 @@ defmodule BeamConsoleWeb.GraphTest do
 
   test "renders one focused application as a directed supervision hierarchy" do
     snapshot = snapshot_fixture()
-    payload = Graph.payload(snapshot, nil)
+    payload = Graph.payload(snapshot)
 
     nodes = Enum.filter(payload.elements, &(&1.data[:source] == nil))
     edges = Enum.reject(payload.elements, &(&1.data[:source] == nil))
@@ -32,12 +33,68 @@ defmodule BeamConsoleWeb.GraphTest do
 
   test "changes focus when a process from another application is selected" do
     snapshot = snapshot_fixture()
-    payload = Graph.payload(snapshot, "proc-other")
+    payload = Graph.payload(snapshot, selected_id: "proc-other")
 
     assert payload.focus == "other"
     assert payload.selected == "proc-other"
     assert Enum.any?(payload.elements, &(&1.data.id == "app-other"))
     refute Enum.any?(payload.elements, &(&1.data.id == "proc-child"))
+  end
+
+  test "adds bounded process links and monitors only for the relationship preset" do
+    snapshot = snapshot_fixture()
+
+    detail = %{
+      id: "proc-child",
+      links: [%ProcessRelation{id: "proc-root", label: "Root", kind: :process}],
+      monitors: [%ProcessRelation{id: "proc-root", label: "Root", kind: :process}],
+      monitored_by: [%ProcessRelation{id: "proc-other", label: "Other", kind: :process}],
+      relationship_omitted: %{links: 0, monitors: 0, monitored_by: 0}
+    }
+
+    supervision = Graph.payload(snapshot, edge_preset: "supervision")
+
+    relationships =
+      Graph.payload(snapshot, edge_preset: "relationships", selected_detail: detail)
+
+    refute Enum.any?(supervision.elements, &(&1.data.kind in ["links", "monitors"]))
+    assert Enum.any?(relationships.elements, &(&1.data.kind == "links"))
+    assert Enum.any?(relationships.elements, &(&1.data.kind == "monitors"))
+    assert Enum.any?(relationships.elements, &(&1.data.id == "proc-other"))
+
+    assert Enum.any?(relationships.elements, fn element ->
+             element.data[:source] == "proc-other" and
+               element.data[:target] == "proc-child" and element.data.kind == "monitors"
+           end)
+
+    assert relationships.omitted_relationships == 0
+    assert relationships.omitted_nodes == 0
+  end
+
+  test "reports inspection caps and unavailable relationship targets" do
+    snapshot = snapshot_fixture()
+
+    detail = %{
+      id: "proc-child",
+      links: [
+        %ProcessRelation{id: "proc-root", label: "Root", kind: :process},
+        %ProcessRelation{id: "proc-gone", label: "Gone", kind: :process},
+        %ProcessRelation{label: "#Port<0.1>", kind: :port}
+      ],
+      monitors: [%ProcessRelation{id: "proc-gone", label: "Gone", kind: :process}],
+      monitored_by: [],
+      relationship_omitted: %{links: 4, monitors: 2, monitored_by: 0}
+    }
+
+    payload =
+      Graph.payload(snapshot,
+        selected_id: "proc-child",
+        edge_preset: "relationships",
+        selected_detail: detail
+      )
+
+    assert payload.omitted_relationships == 9
+    assert payload.omitted_nodes == 0
   end
 
   test "consecutive observer tasks produce the same rendered topology" do
@@ -68,6 +125,7 @@ defmodule BeamConsoleWeb.GraphTest do
 
     %Snapshot{
       sequence: 7,
+      collector_epoch: "epoch-1",
       sampled_at: DateTime.utc_now(),
       local_node_id: "node-local",
       nodes: %{
@@ -124,7 +182,7 @@ defmodule BeamConsoleWeb.GraphTest do
         {:ok, snapshot} = Local.snapshot(sequence: sequence, process_limit: 20_000)
 
         snapshot
-        |> Graph.payload(nil)
+        |> Graph.payload()
         |> Map.fetch!(:elements)
         |> Enum.map(fn element ->
           data = element.data

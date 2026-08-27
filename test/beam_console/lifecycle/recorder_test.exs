@@ -33,7 +33,7 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     assert event.evidence == :monitor
     assert event.certainty == :direct
     assert event.reason.category == :error
-    assert event.reason.text == "{fixture_failure, binary(13 bytes)}"
+    assert event.reason.text == "{atom, binary(13 bytes)}"
     refute event.reason.text =~ "private-value"
     refute is_pid(event.entity_id)
     assert Recorder.status(recorder).pending_correlations == 1

@@ -1,13 +1,12 @@
 defmodule BeamConsole.ApplicationTreeConfig do
   @moduledoc "Validates deterministic application-category configuration."
 
-  @categories [:host, :dependencies, :otp, :tooling, :unattributed]
+  @categories [:host, :dependencies, :otp, :tooling]
   @default_labels %{
     host: "Host applications",
     dependencies: "Dependencies",
     otp: "Erlang / OTP",
-    tooling: "Tooling",
-    unattributed: "Unattributed processes"
+    tooling: "Tooling"
   }
   @keys [
     :host_applications,
@@ -23,7 +22,7 @@ defmodule BeamConsole.ApplicationTreeConfig do
             application_categories: %{},
             classify_application: nil
 
-  @type category :: :host | :dependencies | :otp | :tooling | :unattributed
+  @type category :: :host | :dependencies | :otp | :tooling
   @type classifier :: {module(), atom(), [term()]} | nil
   @type t :: %__MODULE__{
           host_applications: [atom()],
@@ -33,8 +32,8 @@ defmodule BeamConsole.ApplicationTreeConfig do
           classify_application: classifier()
         }
 
-  @spec load(keyword()) :: t()
   @doc "Loads `:beam_console, :application_tree` configuration and applies overrides."
+  @spec load(keyword()) :: t()
   def load(overrides \\ []) do
     configured = Application.get_env(:beam_console, :application_tree, [])
 
@@ -47,8 +46,8 @@ defmodule BeamConsole.ApplicationTreeConfig do
     end
   end
 
-  @spec new!(keyword()) :: t()
   @doc "Builds validated application-tree configuration or raises `ArgumentError`."
+  @spec new!(keyword()) :: t()
   def new!(options \\ []) do
     unknown = Keyword.keys(options) -- @keys
 
@@ -60,8 +59,8 @@ defmodule BeamConsole.ApplicationTreeConfig do
     validate!(config)
   end
 
-  @spec categories() :: [category()]
   @doc "Returns the supported deterministic category identifiers."
+  @spec categories() :: [category()]
   def categories do
     @categories
   end

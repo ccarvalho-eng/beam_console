@@ -7,8 +7,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:selected, :map, default: nil)
     attr(:detail, :any, default: nil)
 
-    @spec inspector(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders the selected entity using only allowlisted bounded metadata."
+    @spec inspector(map()) :: Phoenix.LiveView.Rendered.t()
     def inspector(assigns) do
       ~H"""
       <aside class="beam-console-inspector" aria-label="Selected entity details">
@@ -64,9 +64,21 @@ if Code.ensure_loaded?(Phoenix.Component) do
             <dt>Current</dt><dd>{@detail.current_function || "unknown"}</dd>
           </dl>
 
-          <.relation_list title="Links" values={@detail.links} />
-          <.relation_list title="Monitors" values={@detail.monitors} />
-          <.relation_list title="Monitored by" values={@detail.monitored_by} />
+          <.relation_list
+            title="Links"
+            values={@detail.links}
+            omitted={@detail.relationship_omitted.links}
+          />
+          <.relation_list
+            title="Monitors"
+            values={@detail.monitors}
+            omitted={@detail.relationship_omitted.monitors}
+          />
+          <.relation_list
+            title="Monitored by"
+            values={@detail.monitored_by}
+            omitted={@detail.relationship_omitted.monitored_by}
+          />
         </div>
       <% else %>
         <.empty message={@selected.label <> " is no longer available for live inspection."} />
@@ -128,14 +140,29 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
     attr(:title, :string, required: true)
     attr(:values, :list, required: true)
+    attr(:omitted, :integer, required: true)
 
     defp relation_list(assigns) do
       ~H"""
-      <section :if={@values != []} class="beam-console-relation">
+      <section :if={@values != [] or @omitted > 0} class="beam-console-relation">
         <h4>{@title}</h4>
         <ul>
-          <li :for={value <- @values}>{value}</li>
+          <li :for={relation <- @values}>
+            <button
+              :if={relation.id}
+              type="button"
+              class="beam-console-relation-link"
+              phx-click="select_entity"
+              phx-value-id={relation.id}
+            >
+              {relation.label}
+            </button>
+            <span :if={is_nil(relation.id)}>{relation.label}</span>
+          </li>
         </ul>
+        <p :if={@omitted > 0} class="beam-console-detail-copy">
+          {@omitted} additional relationships omitted by the inspection limit.
+        </p>
       </section>
       """
     end

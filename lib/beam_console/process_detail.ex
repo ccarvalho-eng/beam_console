@@ -6,6 +6,8 @@ defmodule BeamConsole.ProcessDetail do
   terms are intentionally excluded.
   """
 
+  alias BeamConsole.ProcessRelation
+
   @enforce_keys [:id, :pid_text, :label]
   defstruct [
     :id,
@@ -22,10 +24,17 @@ defmodule BeamConsole.ProcessDetail do
     :last_seen_at,
     links: [],
     monitors: [],
-    monitored_by: []
+    monitored_by: [],
+    relationship_counts: %{links: 0, monitors: 0, monitored_by: 0},
+    relationship_omitted: %{links: 0, monitors: 0, monitored_by: 0}
   ]
 
-  @type relation :: String.t()
+  @type relationship_counts :: %{
+          links: non_neg_integer(),
+          monitors: non_neg_integer(),
+          monitored_by: non_neg_integer()
+        }
+
   @type t :: %__MODULE__{
           id: String.t(),
           pid_text: String.t(),
@@ -39,8 +48,10 @@ defmodule BeamConsole.ProcessDetail do
           message_queue_len: non_neg_integer() | nil,
           status: atom() | nil,
           last_seen_at: DateTime.t() | nil,
-          links: [relation()],
-          monitors: [relation()],
-          monitored_by: [relation()]
+          links: [ProcessRelation.t()],
+          monitors: [ProcessRelation.t()],
+          monitored_by: [ProcessRelation.t()],
+          relationship_counts: relationship_counts(),
+          relationship_omitted: relationship_counts()
         }
 end

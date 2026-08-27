@@ -1,0 +1,353 @@
+.beam-console-tab-main {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.beam-console-tab-stage {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: var(--bc-panel-header-height) auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.beam-console-lifecycle-controls {
+  min-height: max-content;
+}
+
+.beam-console-lifecycle-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: var(--bc-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.beam-console-tab-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: var(--bc-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.beam-console-recorder-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--bc-border);
+  background: var(--bc-border);
+}
+
+.beam-console-recorder-summary div {
+  padding: 12px 15px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-recorder-summary span,
+.beam-console-recorder-summary strong {
+  display: block;
+}
+
+.beam-console-recorder-summary span {
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.beam-console-recorder-summary strong {
+  margin-top: 4px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.beam-console-recording-badge,
+.beam-console-event-kind {
+  padding: 4px 7px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 999px;
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.beam-console-recording-badge.is-recording {
+  border-color: color-mix(in srgb, var(--bc-success), transparent 65%);
+  background: color-mix(in srgb, var(--bc-success), transparent 93%);
+  color: var(--bc-success);
+}
+
+.beam-console-recording-badge.is-paused {
+  border-color: color-mix(in srgb, #d97706, transparent 65%);
+  background: color-mix(in srgb, #d97706, transparent 93%);
+  color: #b45309;
+}
+
+.beam-console-lifecycle-list {
+  min-height: min-content;
+}
+
+.beam-console-lifecycle-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 132px minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border: 0;
+  border-bottom: 1px solid var(--bc-border);
+  background: transparent;
+  color: var(--bc-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.beam-console-lifecycle-row:hover:not(:disabled) {
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-lifecycle-row:disabled {
+  cursor: default;
+}
+
+.beam-console-lifecycle-row.is-selected {
+  background: var(--bc-accent-soft);
+  box-shadow: inset 2px 0 var(--bc-accent);
+}
+
+.beam-console-event-kind {
+  justify-self: start;
+  border-radius: 5px;
+  text-transform: lowercase;
+}
+
+.beam-console-event-copy {
+  min-width: 0;
+}
+
+.beam-console-event-copy strong,
+.beam-console-event-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beam-console-event-copy strong {
+  font-size: 11px;
+}
+
+.beam-console-event-copy small,
+.beam-console-lifecycle-row time {
+  margin-top: 3px;
+  color: var(--bc-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+}
+
+.beam-console-lifecycle-row time {
+  margin: 0;
+  text-align: right;
+}
+
+.beam-console-detail-status {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  border-color: color-mix(in srgb, var(--bc-success), transparent 70%);
+  background: color-mix(in srgb, var(--bc-success), transparent 92%);
+  color: color-mix(in srgb, var(--bc-success), var(--bc-text) 30%);
+}
+
+.beam-console-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 15px 0;
+}
+
+.beam-console-metrics div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface);
+}
+
+.beam-console-metrics span,
+.beam-console-metrics strong {
+  display: block;
+}
+
+.beam-console-metrics span {
+  color: var(--bc-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.beam-console-metrics strong {
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.beam-console-fields {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface);
+  font-size: 10px;
+}
+
+.beam-console-fields dt,
+.beam-console-fields dd {
+  margin: 0;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--bc-border);
+}
+
+.beam-console-fields dt:last-of-type,
+.beam-console-fields dd:last-of-type {
+  border-bottom: 0;
+}
+
+.beam-console-fields dt {
+  background: var(--bc-surface-muted);
+  color: var(--bc-muted);
+  font-weight: 600;
+}
+
+.beam-console-fields dd {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-align: right;
+}
+
+.beam-console-relation {
+  margin-top: 17px;
+}
+
+.beam-console-relation h4 {
+  margin: 0 0 7px;
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.beam-console-relation ul {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface);
+  list-style: none;
+  color: var(--bc-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+}
+
+.beam-console-relation li {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--bc-border);
+  overflow-wrap: anywhere;
+}
+
+.beam-console-relation li:last-child {
+  border-bottom: 0;
+}
+
+.beam-console-empty {
+  padding: 34px 18px;
+  color: var(--bc-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.beam-console-empty-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 10px;
+  place-items: center;
+  border: 1px dashed var(--bc-border-strong);
+  border-radius: 8px;
+  color: var(--bc-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+}
+
+.beam-console-warning {
+  margin: 10px;
+  padding: 9px 10px;
+  border: 1px solid #f2c66d;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #8a5a12;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.beam-console-lifecycle-controls .beam-console-warning {
+  min-height: 32px;
+  margin: 0;
+  padding: 8px 15px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  line-height: 15px;
+}
+
+.beam-console-shell button:focus-visible,
+.beam-console-shell input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--bc-accent), transparent 28%);
+  outline-offset: 2px;
+}
+
+@keyframes beam-console-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes beam-console-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme-source="user"]) .beam-console-body {
+    background: #282c34;
+  }
+
+  :root:not([data-theme-source="user"]) .beam-console-shell {
+    --bc-bg: #282c34;
+    --bc-surface: #21252b;
+    --bc-surface-muted: #2c313a;
+    --bc-surface-raised: #343a45;
+    --bc-border: #3e4451;
+    --bc-border-strong: #5c6370;
+    --bc-text: #e6e6e8;
+    --bc-muted: #abb2bf;
+    --bc-subtle: #828997;
+    --bc-accent: #b49af7;
+    --bc-accent-soft: #332c49;
+    --bc-accent-border: #6f5c9f;
+    --bc-success: #7fba75;
+    color-scheme: dark;
+  }
+
+  :root:not([data-theme-source="user"]) .beam-console-warning {
+    border-color: #785d2b;
+    background: #3c321f;
+    color: #e6c67a;
+  }
+}
+

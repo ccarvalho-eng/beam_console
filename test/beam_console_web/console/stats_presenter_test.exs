@@ -21,12 +21,20 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
         frame(sequence, activity: activity)
       end
 
-    result = ActivityPresenter.present(%Query{items: Enum.reverse(frames)}, 300)
+    query = %Query{
+      items: Enum.reverse(frames),
+      dropped: 4,
+      omitted: 3,
+      chart_points_limit: 17
+    }
+
+    result = ActivityPresenter.present(query, 300)
 
     assert result.summary.reductions_per_second == 300
+    assert result.summary.omitted == 7
 
     assert Enum.all?(result.charts, fn chart ->
-             Enum.all?(chart.series, &(length(&1.points) <= 240))
+             Enum.all?(chart.series, &(length(&1.points) <= 17))
            end)
 
     refute Map.has_key?(result.summary, :charts)
@@ -48,6 +56,14 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
     assert result.summary.process_count == 42
     assert result.summary.run_queue == 2
     assert length(result.charts) == 4
+  end
+
+  test "empty runtime presentation exposes the complete render contract" do
+    result = RuntimePresenter.present(%Query{omitted: 2, dropped: 3}, 0)
+
+    assert result.summary.collector_partial? == false
+    assert result.summary.omitted == 5
+    assert result.summary.process_count == 0
   end
 
   defp frame(sequence, options) do

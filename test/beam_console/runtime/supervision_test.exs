@@ -11,7 +11,7 @@ defmodule BeamConsole.Runtime.SupervisionTest do
       Supervisor.start_link(__MODULE__, [])
     end
 
-    @impl true
+    @impl Supervisor
     def init(_options) do
       child = %{
         id: :stable_agent,

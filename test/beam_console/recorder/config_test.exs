@@ -10,7 +10,7 @@ defmodule BeamConsole.Recorder.ConfigTest do
     assert config.event_limit == 1_000
     assert config.frame_limit == 450
     assert config.watch_limit == 5_000
-    assert config.total_points_limit == 14_400
+    assert config.chart_points_limit == 240
     assert config.byte_limit == 8 * 1_024 * 1_024
     assert config.mode == :subscribers
   end
@@ -20,7 +20,6 @@ defmodule BeamConsole.Recorder.ConfigTest do
              Config.new(
                event_limit: 20,
                timeline_limit: 10,
-               points_per_series: 30,
                chart_points_limit: 15,
                mode: :always
              )
@@ -66,9 +65,6 @@ defmodule BeamConsole.Recorder.ConfigTest do
   test "rejects internally inconsistent limits" do
     assert {:error, {:reconciliation_limit, :exceeds_watch_limit}} =
              Config.new(watch_limit: 10, reconciliation_limit: 11)
-
-    assert {:error, {:chart_points_limit, :exceeds_points_per_series}} =
-             Config.new(points_per_series: 10, chart_points_limit: 11)
 
     assert {:error, {:timeline_limit, :exceeds_event_limit}} =
              Config.new(event_limit: 10, timeline_limit: 11)

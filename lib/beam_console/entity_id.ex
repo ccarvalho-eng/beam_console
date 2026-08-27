@@ -15,7 +15,6 @@ defmodule BeamConsole.EntityId do
     slot: "slot"
   }
 
-  @spec build(atom(), term()) :: String.t()
   @doc """
   Builds a deterministic, kind-prefixed identifier from an Erlang term.
 
@@ -27,6 +26,7 @@ defmodule BeamConsole.EntityId do
       iex> id == BeamConsole.EntityId.build(:application, :logger)
       true
   """
+  @spec build(atom(), term()) :: String.t()
   def build(kind, identity) when is_map_key(@prefixes, kind) do
     digest =
       identity
@@ -37,7 +37,6 @@ defmodule BeamConsole.EntityId do
     Map.fetch!(@prefixes, kind) <> "_" <> binary_part(digest, 0, 22)
   end
 
-  @spec label(term(), non_neg_integer()) :: String.t()
   @doc """
   Converts a safe runtime value into a bounded display label.
 
@@ -52,6 +51,7 @@ defmodule BeamConsole.EntityId do
       iex> BeamConsole.EntityId.label({:private, :term})
       "opaque child"
   """
+  @spec label(term(), non_neg_integer()) :: String.t()
   def label(value, limit \\ 96)
 
   def label(value, limit) when is_binary(value) do

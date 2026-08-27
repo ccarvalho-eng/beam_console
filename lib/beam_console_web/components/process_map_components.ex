@@ -10,21 +10,50 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:process_omitted_count, :integer, required: true)
     attr(:selected_id, :string, default: nil)
     attr(:loading?, :boolean, default: false)
+    attr(:edge_preset, :string, default: "supervision")
 
-    @spec process_map(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders topology plus a streamed, explicitly capped process list."
+    @spec process_map(map()) :: Phoenix.LiveView.Rendered.t()
     def process_map(assigns) do
+      assigns =
+        assigns
+        |> assign(:connections_label, connections_label(assigns.edge_preset))
+        |> assign(:topology_label, topology_label(assigns.edge_preset))
+
       ~H"""
       <main class="beam-console-main">
-        <section class="beam-console-graph-stage" aria-label="Supervision topology">
+        <section class="beam-console-graph-stage" aria-label={@topology_label}>
           <div class="beam-console-graph-toolbar">
             <div>
               <span class="beam-console-kicker">Topology</span>
-              <strong>Live supervision · positions preserved</strong>
+              <strong>Live {@connections_label} · positions preserved</strong>
             </div>
-            <div class="beam-console-legend" aria-label="Graph legend">
-              <span><i class="is-app"></i>Application</span>
-              <span><i></i>Process</span>
+            <div class="beam-console-graph-controls">
+              <div class="beam-console-edge-toggle" role="group" aria-label="Process map connections">
+                <button
+                  type="button"
+                  class={@edge_preset == "supervision" && "is-active"}
+                  phx-click="set_edges"
+                  phx-value-edges="supervision"
+                  aria-pressed={if(@edge_preset == "supervision", do: "true", else: "false")}
+                >
+                  Supervision
+                </button>
+                <button
+                  type="button"
+                  class={@edge_preset == "relationships" && "is-active"}
+                  phx-click="set_edges"
+                  phx-value-edges="relationships"
+                  aria-pressed={if(@edge_preset == "relationships", do: "true", else: "false")}
+                >
+                  Links + monitors
+                </button>
+              </div>
+              <div class="beam-console-legend" aria-label="Graph legend">
+                <span data-graph-omitted aria-live="polite"></span>
+                <span><i class="is-app"></i>Application</span>
+                <span><i></i>Process</span>
+              </div>
             </div>
           </div>
           <div
@@ -33,7 +62,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             phx-hook="BeamConsoleGraph"
             phx-update="ignore"
             role="img"
-            aria-label="Interactive runtime supervision graph; use the process list for keyboard navigation"
+            aria-label="Interactive runtime process graph; use the process list for keyboard navigation"
           >
           </div>
         </section>
@@ -97,6 +126,22 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
     defp format_bytes(bytes) do
       "#{Float.round(bytes / 1_024, 1)} KB"
+    end
+
+    defp connections_label("relationships") do
+      "links and monitors"
+    end
+
+    defp connections_label(_preset) do
+      "supervision"
+    end
+
+    defp topology_label("relationships") do
+      "Process relationship topology"
+    end
+
+    defp topology_label(_preset) do
+      "Supervision topology"
     end
   end
 end

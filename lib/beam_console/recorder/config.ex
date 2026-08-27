@@ -14,9 +14,6 @@ defmodule BeamConsole.Recorder.Config do
     :watch_limit,
     :reconciliation_limit,
     :pending_slot_ms,
-    :series_limit,
-    :points_per_series,
-    :total_points_limit,
     :chart_points_limit,
     :timeline_limit,
     :byte_limit
@@ -28,9 +25,6 @@ defmodule BeamConsole.Recorder.Config do
             watch_limit: 5_000,
             reconciliation_limit: 500,
             pending_slot_ms: 30_000,
-            series_limit: 32,
-            points_per_series: 450,
-            total_points_limit: 14_400,
             chart_points_limit: 240,
             timeline_limit: 500,
             byte_limit: 8 * 1_024 * 1_024,
@@ -44,9 +38,6 @@ defmodule BeamConsole.Recorder.Config do
           watch_limit: pos_integer(),
           reconciliation_limit: pos_integer(),
           pending_slot_ms: pos_integer(),
-          series_limit: pos_integer(),
-          points_per_series: pos_integer(),
-          total_points_limit: pos_integer(),
           chart_points_limit: pos_integer(),
           timeline_limit: pos_integer(),
           byte_limit: pos_integer(),
@@ -59,21 +50,20 @@ defmodule BeamConsole.Recorder.Config do
           | {atom(), :must_be_positive}
           | {:mode, :must_be_subscribers_or_always}
           | {:reconciliation_limit, :exceeds_watch_limit}
-          | {:chart_points_limit, :exceeds_points_per_series}
           | {:timeline_limit, :exceeds_event_limit}
 
-  @spec defaults() :: t()
   @doc "Returns the recorder's conservative default limits."
+  @spec defaults() :: t()
   def defaults do
     %__MODULE__{}
   end
 
-  @spec new(keyword()) :: {:ok, t()} | {:error, validation_error()}
   @doc """
   Builds recorder configuration from validated keyword overrides.
 
   Unknown fields and internally inconsistent limits return structured errors.
   """
+  @spec new(keyword()) :: {:ok, t()} | {:error, validation_error()}
   def new(options \\ []) do
     with :ok <- validate_keyword(options),
          :ok <- validate_known_options(options) do
@@ -87,8 +77,8 @@ defmodule BeamConsole.Recorder.Config do
     end
   end
 
-  @spec new!(keyword()) :: t()
   @doc "Builds recorder configuration and raises `ArgumentError` when it is invalid."
+  @spec new!(keyword()) :: t()
   def new!(options \\ []) do
     case new(options) do
       {:ok, config} ->
@@ -99,12 +89,12 @@ defmodule BeamConsole.Recorder.Config do
     end
   end
 
-  @spec load(keyword()) :: t()
   @doc """
   Loads `:beam_console, :recorder` application configuration and applies overrides.
 
   Runtime overrides take precedence over application configuration.
   """
+  @spec load(keyword()) :: t()
   def load(overrides \\ []) do
     configured = Application.get_env(:beam_console, :recorder, [])
 
@@ -145,9 +135,6 @@ defmodule BeamConsole.Recorder.Config do
     cond do
       config.reconciliation_limit > config.watch_limit ->
         {:error, {:reconciliation_limit, :exceeds_watch_limit}}
-
-      config.chart_points_limit > config.points_per_series ->
-        {:error, {:chart_points_limit, :exceeds_points_per_series}}
 
       config.timeline_limit > config.event_limit ->
         {:error, {:timeline_limit, :exceeds_event_limit}}

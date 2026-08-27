@@ -57,6 +57,9 @@ jobs:
       - name: Run tests with coverage
         run: mix test --cover
 
+      - name: Verify Hex package contents
+        run: mix hex.build
+
       - name: Install JavaScript dependencies
         run: npm ci --prefix assets
 
@@ -77,7 +80,92 @@ jobs:
 
       - name: Compile plain Elixir host
         working-directory: fixtures/plain_host
-        run: mix compile --warnings-as-errors
+        run: mix compile --warnings-as-errors && mix test
+
+      - name: Compile plain host for production
+        working-directory: fixtures/plain_host
+        run: MIX_ENV=prod mix compile --warnings-as-errors
+
+      - name: Install Phoenix-without-LiveView dependencies
+        working-directory: fixtures/phoenix_without_live_view
+        run: mix deps.get
+
+      - name: Verify Phoenix without LiveView
+        working-directory: fixtures/phoenix_without_live_view
+        run: mix compile --warnings-as-errors && mix test
+
+  compatibility:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.17.3"
+            otp: "26.2.5"
+          - elixir: "1.17.3"
+            otp: "27.3.4"
+          - elixir: "1.18.4"
+            otp: "27.3.4"
+          - elixir: "1.19.5"
+            otp: "28.4.1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+          cache-suffix: compatibility
+
+      - name: Compile and test
+        run: mix compile --warnings-as-errors && mix test
+
+  phoenix-compatibility:
+    name: Phoenix ${{ matrix.phoenix }} / LiveView ${{ matrix.live_view }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - phoenix: "== 1.8.9"
+            live_view: "== 1.2.0"
+            cache_suffix: phoenix-minimum
+          - phoenix: "~> 1.8.9"
+            live_view: "~> 1.2.0"
+            cache_suffix: phoenix-current
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          cache-suffix: ${{ matrix.cache_suffix }}
+
+      - name: Install compatibility dependencies
+        working-directory: fixtures/phoenix_host
+        env:
+          PHOENIX_VERSION: ${{ matrix.phoenix }}
+          LIVE_VIEW_VERSION: ${{ matrix.live_view }}
+        run: mix deps.get
+
+      - name: Compile and test embedded host
+        working-directory: fixtures/phoenix_host
+        env:
+          PHOENIX_VERSION: ${{ matrix.phoenix }}
+          LIVE_VIEW_VERSION: ${{ matrix.live_view }}
+        run: mix compile --warnings-as-errors && mix test
 
   static-analysis:
     name: Static analysis
@@ -101,6 +189,12 @@ jobs:
 
       - name: Check documentation coverage
         run: mix doctor --raise
+
+      - name: Install documentation dependencies
+        run: MIX_ENV=dev mix deps.get
+
+      - name: Build HexDocs with warnings as errors
+        run: MIX_ENV=dev mix docs --warnings-as-errors
 
       - name: Run Phoenix security analysis
         run: mix sobelow --skip --no-router --ignore Config.HTTPS --private --exit

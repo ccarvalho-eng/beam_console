@@ -8,8 +8,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:summary, :map, required: true)
     attr(:has_samples?, :boolean, default: false)
 
-    @spec activity(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders aggregate activity rates, ranked process movers, and three bounded charts."
+    @spec activity(map()) :: Phoenix.LiveView.Rendered.t()
     def activity(assigns) do
       ~H"""
       <main class="beam-console-main beam-console-tab-main">
@@ -29,32 +29,34 @@ if Code.ensure_loaded?(Phoenix.Component) do
             <div><span>Omitted</span><strong>{@summary.omitted}</strong></div>
           </div>
 
-          <.chart_grid
-            :if={@has_samples?}
-            ids={["activity-reductions", "activity-mailbox", "activity-memory"]}
-            hook_id="beam-console-activity-charts"
-          />
+          <div class="beam-console-tab-scroll">
+            <.chart_grid
+              :if={@has_samples?}
+              ids={["activity-reductions", "activity-mailbox", "activity-memory"]}
+              hook_id="beam-console-activity-charts"
+            />
 
-          <div :if={!@has_samples?} class="beam-console-empty">
-            <div class="beam-console-empty-mark" aria-hidden="true">···</div>
-            Two successful samples are needed before activity can be compared.
-          </div>
-
-          <section class="beam-console-movers" aria-label="Top process movers">
-            <h2>Top movers</h2>
-            <div id="beam-console-mover-list" phx-update="stream">
-              <button
-                :for={{dom_id, mover} <- @streams.top_movers}
-                id={dom_id}
-                phx-click="select_entity"
-                phx-value-id={mover.entity_id}
-                class="beam-console-mover-row"
-              >
-                <span><strong>{mover.label}</strong><small>{metric_label(mover.metric)}</small></span>
-                <b>{metric_value(mover.metric, mover.value)}</b>
-              </button>
+            <div :if={!@has_samples?} class="beam-console-empty">
+              <div class="beam-console-empty-mark" aria-hidden="true">···</div>
+              Two successful samples are needed before activity can be compared.
             </div>
-          </section>
+
+            <section class="beam-console-movers" aria-label="Top process movers">
+              <h2>Top movers</h2>
+              <div id="beam-console-mover-list" phx-update="stream">
+                <button
+                  :for={{dom_id, mover} <- @streams.top_movers}
+                  id={dom_id}
+                  phx-click="select_entity"
+                  phx-value-id={mover.entity_id}
+                  class="beam-console-mover-row"
+                >
+                  <span><strong>{mover.label}</strong><small>{metric_label(mover.metric)}</small></span>
+                  <b>{metric_value(mover.metric, mover.value)}</b>
+                </button>
+              </div>
+            </section>
+          </div>
         </section>
       </main>
       """
@@ -63,8 +65,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:summary, :map, required: true)
     attr(:has_samples?, :boolean, default: false)
 
-    @spec runtime(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders node-wide runtime inventory, memory, scheduler, and collector charts."
+    @spec runtime(map()) :: Phoenix.LiveView.Rendered.t()
     def runtime(assigns) do
       ~H"""
       <main class="beam-console-main beam-console-tab-main">
@@ -82,18 +84,20 @@ if Code.ensure_loaded?(Phoenix.Component) do
             <div><span>Run queue</span><strong>{@summary.run_queue || "—"}</strong></div>
           </div>
 
-          <div :if={@summary.collector_partial?} class="beam-console-warning">
-            The latest runtime sample is partial; chart gaps are preserved.
-          </div>
-          <.chart_grid
-            :if={@has_samples?}
-            ids={["runtime-memory", "runtime-run-queue", "runtime-counts", "runtime-scan"]}
-            hook_id="beam-console-runtime-charts"
-          />
+          <div class="beam-console-tab-scroll">
+            <div :if={@summary.collector_partial?} class="beam-console-warning">
+              The latest runtime sample is partial; chart gaps are preserved.
+            </div>
+            <.chart_grid
+              :if={@has_samples?}
+              ids={["runtime-memory", "runtime-run-queue", "runtime-counts", "runtime-scan"]}
+              hook_id="beam-console-runtime-charts"
+            />
 
-          <div :if={!@has_samples?} class="beam-console-empty">
-            <div class="beam-console-empty-mark" aria-hidden="true">···</div>
-            Waiting for the first retained runtime sample.
+            <div :if={!@has_samples?} class="beam-console-empty">
+              <div class="beam-console-empty-mark" aria-hidden="true">···</div>
+              Waiting for the first retained runtime sample.
+            </div>
           </div>
         </section>
       </main>
@@ -117,7 +121,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             viewBox="0 0 640 180"
             preserveAspectRatio="none"
             role="img"
-            aria-label="Runtime history chart"
+            aria-label="History chart"
           ></svg>
           <div class="beam-console-chart-legend" data-chart-legend></div>
         </figure>

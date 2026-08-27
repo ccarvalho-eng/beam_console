@@ -19,13 +19,13 @@ defmodule BeamConsole.Lifecycle.Correlator do
           | {:pending, PendingExit.t()}
           | {:discard, discard_reason()}
 
-  @spec correlate(PendingExit.t(), [Observation.t()], keyword()) :: result()
   @doc """
   Evaluates one pending stable-slot exit against a completed observation batch.
 
   Required context keys are `:sequence`, `:segment`, `:monotonic_ms`,
   `:sampled_at_ms`, `:coverage`, and `:pending_slot_ms`.
   """
+  @spec correlate(PendingExit.t(), [Observation.t()], keyword()) :: result()
   def correlate(%PendingExit{} = pending, observations, context)
       when is_list(observations) and is_list(context) do
     sequence = Keyword.fetch!(context, :sequence)

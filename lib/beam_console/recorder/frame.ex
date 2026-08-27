@@ -24,7 +24,7 @@ defmodule BeamConsole.Recorder.Frame do
             runtime: nil,
             coverage: :complete
 
-  @type coverage :: :complete | :partial | :truncated
+  @type coverage :: Coverage.state()
   @type t :: %__MODULE__{
           sequence: non_neg_integer(),
           segment: non_neg_integer(),
@@ -39,8 +39,8 @@ defmodule BeamConsole.Recorder.Frame do
           coverage: coverage()
         }
 
-  @spec from_snapshot(Snapshot.t(), integer(), ActivitySample.t() | nil) :: t()
   @doc "Builds a PID-free aggregate frame from one completed runtime snapshot."
+  @spec from_snapshot(Snapshot.t(), integer(), ActivitySample.t() | nil) :: t()
   def from_snapshot(%Snapshot{} = snapshot, monotonic_ms, activity \\ nil)
       when is_integer(monotonic_ms) do
     %__MODULE__{
@@ -53,7 +53,7 @@ defmodule BeamConsole.Recorder.Frame do
       ets_count: runtime_value(snapshot.runtime_sample, :ets_count, 0),
       activity: activity,
       runtime: snapshot.runtime_sample,
-      coverage: coverage_state(snapshot.coverage)
+      coverage: Coverage.state(snapshot.coverage)
     }
   end
 
@@ -82,21 +82,5 @@ defmodule BeamConsole.Recorder.Frame do
     |> Kernel.++(root_supervisors)
     |> MapSet.new()
     |> MapSet.size()
-  end
-
-  defp coverage_state(%Coverage{traversal_limit_reached?: true}) do
-    :truncated
-  end
-
-  defp coverage_state(%Coverage{process_limit_reached?: true}) do
-    :truncated
-  end
-
-  defp coverage_state(%Coverage{partial_supervisors: count}) when count > 0 do
-    :partial
-  end
-
-  defp coverage_state(%Coverage{}) do
-    :complete
   end
 end

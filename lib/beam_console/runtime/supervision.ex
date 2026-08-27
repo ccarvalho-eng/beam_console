@@ -36,7 +36,6 @@ defmodule BeamConsole.Runtime.Supervision do
           traversal_limit_reached? :: boolean()
         }
 
-  @spec collect([root()], node(), keyword()) :: result()
   @doc """
   Collects normalized supervision edges and process-to-application attribution.
 
@@ -44,15 +43,19 @@ defmodule BeamConsole.Runtime.Supervision do
   supervisor, or child limit sets the final boolean without discarding the
   bounded data collected so far.
   """
+  @spec collect([root()], node(), keyword()) :: result()
   def collect(roots, local_node, options) do
-    queue = Enum.map(roots, fn {application, pid} -> {application, pid, 0} end)
+    queue =
+      roots |> Enum.map(fn {application, pid} -> {application, pid, 0} end) |> :queue.from_list()
+
     task_supervisor = Keyword.get(options, :task_supervisor, BeamConsole.TaskSupervisor)
+    probe_task_supervisor = Keyword.get(options, :probe_task_supervisor, task_supervisor)
 
     context = %{
       local_node: local_node,
       options: options,
       sequence: Keyword.get(options, :sequence, 0),
-      task_supervisor: task_supervisor,
+      task_supervisor: probe_task_supervisor,
       task_supervisor_pid: InternalProcesses.task_supervisor_pid(task_supervisor),
       supervisor_limit: Config.get(options, :supervisor_limit),
       children_limit: Config.get(options, :children_limit),
@@ -70,13 +73,17 @@ defmodule BeamConsole.Runtime.Supervision do
     }
   end
 
-  defp walk([], state, _context) do
-    state
+  defp walk(queue, state, context) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
+        state
+
+      {{:value, item}, rest} ->
+        walk_item(item, rest, state, context)
+    end
   end
 
-  defp walk([item | rest], state, context) do
-    {application, supervisor, depth} = item
-
+  defp walk_item({application, supervisor, depth}, rest, state, context) do
     cond do
       supervisor == context.task_supervisor_pid ->
         visited = Map.put(state.visited, supervisor, true)
@@ -93,11 +100,11 @@ defmodule BeamConsole.Runtime.Supervision do
         walk(rest, state, context)
 
       true ->
-        visit(rest, application, supervisor, depth, state, context)
+        visit(rest, {application, supervisor, depth}, state, context)
     end
   end
 
-  defp visit(rest, application, supervisor, depth, state, context) do
+  defp visit(rest, {_application, supervisor, _depth} = item, state, context) do
     state = %{state | visited: Map.put(state.visited, supervisor, true)}
 
     case which_children(supervisor, context) do
@@ -108,16 +115,14 @@ defmodule BeamConsole.Runtime.Supervision do
         batch =
           normalize_children(
             included,
-            application,
-            supervisor,
-            context.local_node,
-            depth,
-            context.sequence,
-            if(omitted == [], do: :complete, else: :truncated)
+            item,
+            if(omitted == [], do: :complete, else: :truncated),
+            context
           )
 
         next_state = merge_batch(state, batch, omitted != [])
-        walk(rest ++ batch.additions, next_state, context)
+        next_queue = Enum.reduce(batch.additions, rest, &:queue.in/2)
+        walk(next_queue, next_state, context)
 
       {:error, _reason} ->
         walk(rest, %{state | partial: state.partial + 1}, context)
@@ -126,13 +131,12 @@ defmodule BeamConsole.Runtime.Supervision do
 
   defp normalize_children(
          children,
-         application,
-         parent,
-         local_node,
-         depth,
-         sequence,
-         coverage
+         {application, parent, depth},
+         coverage,
+         context
        ) do
+    local_node = context.local_node
+    sequence = context.sequence
     parent_id = EntityId.build(:process, {local_node, parent})
 
     Enum.reduce(

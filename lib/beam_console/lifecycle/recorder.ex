@@ -26,64 +26,79 @@ defmodule BeamConsole.Lifecycle.Recorder do
   alias BeamConsole.Recorder.Status
 
   @type status :: Status.t()
+  @type query_error :: {:error, {:invalid_query_options, term()}}
 
-  @spec start_link(keyword()) :: GenServer.on_start()
+  @event_kinds [
+    :recording_started,
+    :reset,
+    :gap,
+    :observed_start,
+    :observed_stop,
+    :terminated,
+    :replacement_observed
+  ]
+
   @doc "Starts a lifecycle recorder with optional name, limits, clocks, and collector overrides."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options \\ []) do
     name = Keyword.get(options, :name, __MODULE__)
     GenServer.start_link(__MODULE__, options, name: name)
   end
 
-  @spec activate(GenServer.server()) :: :ok
   @doc "Activates lazy recording when the first console subscriber connects."
+  @spec activate(GenServer.server()) :: :ok
   def activate(server \\ __MODULE__) do
     GenServer.cast(server, :activate)
   end
 
-  @spec deactivate(GenServer.server()) :: :ok
   @doc "Deactivates lazy recording and removes its process monitors."
+  @spec deactivate(GenServer.server()) :: :ok
   def deactivate(server \\ __MODULE__) do
     GenServer.cast(server, :deactivate)
   end
 
-  @spec pause(GenServer.server()) :: Status.t()
   @doc "Pauses recording until an operator explicitly resumes it."
+  @spec pause(GenServer.server()) :: Status.t()
   def pause(server \\ __MODULE__) do
     GenServer.call(server, :pause)
   end
 
-  @spec resume(GenServer.server()) :: Status.t()
   @doc "Resumes recording when subscriber or always-on demand is present."
+  @spec resume(GenServer.server()) :: Status.t()
   def resume(server \\ __MODULE__) do
     GenServer.call(server, :resume)
   end
 
-  @spec observe(Frame.t(), [Observation.t()], keyword(), GenServer.server()) :: :ok
   @doc "Reconciles one bounded private observation batch from a completed collector frame."
+  @spec observe(Frame.t(), [Observation.t()], keyword(), GenServer.server()) :: :ok
   def observe(frame, observations, options \\ [], server \\ __MODULE__)
       when is_list(observations) and is_list(options) do
     GenServer.cast(server, {:observe, frame, observations, options})
   end
 
-  @spec status(GenServer.server()) :: status()
   @doc "Returns PID-free recorder activity, coverage, and bounded-history statistics."
+  @spec status(GenServer.server()) :: status()
   def status(server \\ __MODULE__) do
     GenServer.call(server, :status)
   end
 
-  @spec events(keyword(), GenServer.server()) :: Query.t()
   @doc "Returns a newest-first bounded lifecycle-event window with omission metadata."
+  @spec events(keyword(), GenServer.server()) :: Query.t() | query_error()
   def events(options \\ [], server \\ __MODULE__) do
-    GenServer.call(server, {:events, options})
+    with :ok <- validate_query_options(options, :events) do
+      GenServer.call(server, {:events, options})
+    end
   end
 
-  @spec samples(keyword(), GenServer.server()) :: Query.t()
   @doc "Returns newest aggregate recorder frames under the configured history cap."
+  @spec samples(keyword(), GenServer.server()) :: Query.t() | query_error()
   def samples(options \\ [], server \\ __MODULE__) do
-    GenServer.call(server, {:samples, options})
+    with :ok <- validate_query_options(options, :samples) do
+      GenServer.call(server, {:samples, options})
+    end
   end
 
-  @impl true
+  @impl GenServer
   def init(options) do
     config = recorder_config(Keyword.get(options, :config))
     monotonic_clock = Keyword.get(options, :monotonic_clock, &monotonic_ms/0)
@@ -101,7 +116,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
     {:ok, if(config.mode == :always, do: start_recording(state), else: state)}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:status, _from, state) do
     state = state |> flush_pending_events() |> prune_history()
     {:reply, status_from_state(state), state}
@@ -120,18 +135,14 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   def handle_call({:events, options}, _from, state) do
-    state = flush_pending_events(state)
-    {history, result} = Query.events(state.history, options)
-    {:reply, result, %{state | history: history}}
+    query_reply(state, options, :events)
   end
 
   def handle_call({:samples, options}, _from, state) do
-    state = flush_pending_events(state)
-    {history, result} = Query.frames(state.history, options)
-    {:reply, result, %{state | history: history}}
+    query_reply(state, options, :samples)
   end
 
-  @impl true
+  @impl GenServer
   def handle_cast(:activate, %State{paused?: true} = state) do
     {:noreply, %{state | demanded?: true}}
   end
@@ -165,13 +176,12 @@ defmodule BeamConsole.Lifecycle.Recorder do
         Keyword.get(options, :reset?, false) or
         source_changed?(state.source_epoch, source_epoch)
 
-    events = recording_started_events(state, frame)
+    events = recording_started_events(state, frame) ++ Keyword.get(options, :events, [])
 
     case History.append(
            state.history,
            frame,
            events,
-           [],
            reset?: reset?,
            now_ms: frame.monotonic_ms
          ) do
@@ -192,7 +202,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:DOWN, reference, :process, _pid, reason}, state) do
     case Map.pop(state.watches_by_ref, reference) do
       {nil, _watches_by_ref} ->
@@ -229,6 +239,90 @@ defmodule BeamConsole.Lifecycle.Recorder do
 
   def handle_info(_message, state) do
     {:noreply, state}
+  end
+
+  defp query_reply(state, options, kind) do
+    case validate_query_options(options, kind) do
+      :ok ->
+        state = flush_pending_events(state)
+
+        {history, result} =
+          case kind do
+            :events -> Query.events(state.history, options)
+            :samples -> Query.frames(state.history, options)
+          end
+
+        {:reply, result, %{state | history: history}}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  defp validate_query_options(options, kind) when is_list(options) do
+    if Keyword.keyword?(options) do
+      validate_keyword_query(options, kind)
+    else
+      invalid_query(options)
+    end
+  end
+
+  defp validate_query_options(options, _kind) do
+    invalid_query(options)
+  end
+
+  defp validate_keyword_query(options, kind) do
+    allowed =
+      if kind == :events,
+        do: [:kinds, :limit, :now_ms, :since_ms],
+        else: [:limit, :now_ms, :since_ms]
+
+    unknown = Keyword.keys(options) -- allowed
+
+    cond do
+      unknown != [] ->
+        invalid_query({:unknown, Enum.uniq(unknown)})
+
+      not valid_optional_integer?(options, :now_ms) ->
+        invalid_query(:now_ms)
+
+      not valid_optional_integer?(options, :since_ms) ->
+        invalid_query(:since_ms)
+
+      not valid_limit?(options) ->
+        invalid_query(:limit)
+
+      kind == :events and not valid_kinds?(options) ->
+        invalid_query(:kinds)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_optional_integer?(options, key) do
+    case Keyword.fetch(options, key) do
+      :error -> true
+      {:ok, value} -> is_integer(value)
+    end
+  end
+
+  defp valid_limit?(options) do
+    case Keyword.fetch(options, :limit) do
+      :error -> true
+      {:ok, value} -> is_integer(value) and value > 0
+    end
+  end
+
+  defp valid_kinds?(options) do
+    case Keyword.fetch(options, :kinds) do
+      :error -> true
+      {:ok, kinds} -> is_list(kinds) and Enum.all?(kinds, &(&1 in @event_kinds))
+    end
+  end
+
+  defp invalid_query(reason) do
+    {:error, {:invalid_query_options, reason}}
   end
 
   defp recorder_config(nil) do
@@ -491,7 +585,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
 
     %Event{
       id: EntityId.build(:event, {:terminated, watch.entity_id, monotonic_ms}),
-      kind: if(summary.category == :connection, do: :connection_lost, else: :terminated),
+      kind: :terminated,
       sequence: watch.last_sequence,
       segment: state.history.segment,
       observed_at_ms: state.system_clock.(),
@@ -499,7 +593,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
       entity_id: watch.entity_id,
       label: termination_label(watch, missed?),
       node_id: EntityId.build(:node, node(watch.pid)),
-      evidence: if(summary.category == :connection, do: :connection, else: :monitor),
+      evidence: :monitor,
       certainty: if(missed?, do: :missed, else: :direct),
       reason: summary
     }

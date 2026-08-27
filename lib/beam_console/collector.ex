@@ -11,14 +11,15 @@ defmodule BeamConsole.Collector do
   use GenServer
 
   alias BeamConsole.Activity
-  alias BeamConsole.Collector.Subscriber
   alias BeamConsole.Collector.Status
+  alias BeamConsole.Collector.Subscriber
   alias BeamConsole.Config
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
   alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
-  alias BeamConsole.Recorder.Frame
+  alias BeamConsole.Lifecycle.DiffEvents
   alias BeamConsole.ReasonSummary
+  alias BeamConsole.Recorder.Frame
   alias BeamConsole.Runtime.InternalProcesses
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
@@ -36,7 +37,6 @@ defmodule BeamConsole.Collector do
             diff_limit: 500,
             sequence: 0,
             snapshot: nil,
-            previous_snapshot: nil,
             diff: nil,
             subscribers: %{},
             scan: nil,
@@ -63,14 +63,13 @@ defmodule BeamConsole.Collector do
           diff_limit: non_neg_integer(),
           sequence: non_neg_integer(),
           snapshot: BeamConsole.Snapshot.t() | nil,
-          previous_snapshot: BeamConsole.Snapshot.t() | nil,
           diff: Diff.t() | nil,
           subscribers: %{pid() => Subscriber.t()},
           scan: Task.t() | nil,
           scan_timeout_ref: reference() | nil,
           tick_ref: {reference(), reference()} | nil,
           pending_refresh?: boolean(),
-          last_error: term(),
+          last_error: ReasonSummary.t() | nil,
           last_failure_at: DateTime.t() | nil,
           refresh_cooldown: non_neg_integer(),
           last_operator_refresh_ms: integer() | nil,
@@ -79,70 +78,70 @@ defmodule BeamConsole.Collector do
 
   @type state :: t()
 
-  @spec start_link(keyword()) :: GenServer.on_start()
   @doc "Starts a collector with optional runtime, interval, and limit overrides."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
     name = Keyword.get(options, :name, __MODULE__)
     GenServer.start_link(__MODULE__, Keyword.put(options, :name, name), name: name)
   end
 
-  @spec subscribe(GenServer.server()) :: {:ok, BeamConsole.Snapshot.t() | nil}
   @doc "Subscribes the caller and starts sampling when it is the first subscriber."
+  @spec subscribe(GenServer.server()) :: {:ok, BeamConsole.Snapshot.t() | nil}
   def subscribe(server \\ __MODULE__) do
     GenServer.call(server, {:subscribe, self()})
   end
 
-  @spec unsubscribe(GenServer.server()) :: :ok
   @doc "Unsubscribes the caller and stops scheduled sampling when no subscribers remain."
+  @spec unsubscribe(GenServer.server()) :: :ok
   def unsubscribe(server \\ __MODULE__) do
     GenServer.call(server, {:unsubscribe, self()})
   end
 
-  @spec acknowledge(non_neg_integer(), GenServer.server()) :: :ok
   @doc "Acknowledges the caller's outstanding snapshot version and releases its newest pending version."
+  @spec acknowledge(non_neg_integer(), GenServer.server()) :: :ok
   def acknowledge(sequence, server \\ __MODULE__) when is_integer(sequence) and sequence >= 0 do
     GenServer.call(server, {:acknowledge, self(), sequence})
   end
 
-  @spec refresh(GenServer.server()) :: :ok
   @doc "Requests a scan, coalescing the request when a scan is already running."
+  @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__) do
     GenServer.cast(server, :refresh)
   end
 
-  @spec request_refresh(GenServer.server()) :: :ok | {:error, :rate_limited}
   @doc "Requests an operator scan while enforcing the configured refresh cooldown."
+  @spec request_refresh(GenServer.server()) :: :ok | {:error, :rate_limited}
   def request_refresh(server \\ __MODULE__) do
     GenServer.call(server, :request_refresh)
   end
 
-  @spec latest_snapshot(GenServer.server()) :: BeamConsole.Snapshot.t() | nil
   @doc "Returns the most recent completed snapshot."
+  @spec latest_snapshot(GenServer.server()) :: BeamConsole.Snapshot.t() | nil
   def latest_snapshot(server \\ __MODULE__) do
     GenServer.call(server, :latest_snapshot)
   end
 
-  @spec current_diff(GenServer.server()) :: Diff.t() | nil
   @doc "Returns the bounded diff produced by the most recent completed scan."
+  @spec current_diff(GenServer.server()) :: Diff.t() | nil
   def current_diff(server \\ __MODULE__) do
     GenServer.call(server, :current_diff)
   end
 
-  @spec status(GenServer.server()) :: Status.t()
   @doc "Returns bounded collector health and freshness information."
+  @spec status(GenServer.server()) :: Status.t()
   def status(server \\ __MODULE__) do
     GenServer.call(server, :status)
   end
 
   @type changes_result :: {:ok, [Diff.t()]} | {:resync, BeamConsole.Snapshot.t() | nil}
 
-  @spec changes_since(non_neg_integer(), GenServer.server()) :: changes_result()
   @doc "Returns the current bounded diff when it directly follows `sequence`, otherwise requests resync."
+  @spec changes_since(non_neg_integer(), GenServer.server()) :: changes_result()
   def changes_since(sequence, server \\ __MODULE__) when is_integer(sequence) and sequence >= 0 do
     GenServer.call(server, {:changes_since, sequence})
   end
 
-  @impl true
+  @impl GenServer
   def init(options) do
     configured =
       options
@@ -172,10 +171,14 @@ defmodule BeamConsole.Collector do
         end)
     }
 
+    if not state.always_record? do
+      deactivate_lifecycle_recorder(state.lifecycle_recorder)
+    end
+
     {:ok, if(state.always_record?, do: request_scan(state), else: state)}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call({:subscribe, subscriber}, _from, state) do
     first_subscriber? =
       map_size(state.subscribers) == 0 and not Map.has_key?(state.subscribers, subscriber)
@@ -221,12 +224,12 @@ defmodule BeamConsole.Collector do
     {:reply, result, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_cast(:refresh, state) do
     {:noreply, request_scan(state)}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:scan, token}, %{scan: nil, tick_ref: {_timer, token}} = state) do
     {:noreply, start_scan(%{state | tick_ref: nil, pending_refresh?: false})}
   end
@@ -243,7 +246,7 @@ defmodule BeamConsole.Collector do
     Process.demonitor(reference, [:flush])
     cancel_timer(state.scan_timeout_ref)
 
-    snapshot = %{snapshot | stale?: false}
+    snapshot = %{snapshot | stale?: false, collector_epoch: state.recorder_epoch}
     monotonic_ms = System.monotonic_time(:millisecond)
     activity = Activity.sample(state.snapshot, snapshot, monotonic_ms)
     frame = Frame.from_snapshot(snapshot, monotonic_ms, activity)
@@ -251,14 +254,15 @@ defmodule BeamConsole.Collector do
     {snapshot, observations} =
       detach_lifecycle_observations(snapshot, state.task_supervisor)
 
-    state = deliver_lifecycle_observations(state, frame, observations)
-
     diff = Diff.between(state.snapshot, snapshot, state.diff_limit)
+    lifecycle_events = DiffEvents.from_diff(diff, state.snapshot, snapshot, frame)
+
+    state =
+      deliver_lifecycle_observations(state, frame, observations, events: lifecycle_events)
 
     next_state = %{
       state
-      | previous_snapshot: state.snapshot,
-        snapshot: snapshot,
+      | snapshot: snapshot,
         diff: diff,
         sequence: snapshot.sequence,
         scan: nil,
@@ -307,11 +311,30 @@ defmodule BeamConsole.Collector do
 
     task =
       Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-        state.runtime.snapshot(options)
+        run_scan(state.runtime, options)
       end)
 
     timeout_ref = Process.send_after(self(), {:scan_timeout, task.ref}, state.scan_timeout)
     %{state | scan: task, scan_timeout_ref: timeout_ref}
+  end
+
+  defp run_scan(runtime, options) do
+    {:ok, probe_supervisor} = Task.Supervisor.start_link()
+    options = Keyword.put(options, :probe_task_supervisor, probe_supervisor)
+
+    try do
+      runtime.snapshot(options)
+    after
+      stop_probe_supervisor(probe_supervisor)
+    end
+  end
+
+  defp stop_probe_supervisor(probe_supervisor) do
+    if Process.alive?(probe_supervisor) do
+      Supervisor.stop(probe_supervisor, :normal)
+    end
+  catch
+    :exit, _reason -> :ok
   end
 
   defp request_scan(%{scan: nil, tick_ref: nil} = state) do
@@ -347,7 +370,7 @@ defmodule BeamConsole.Collector do
       snapshot: snapshot,
       scan: nil,
       scan_timeout_ref: nil,
-      last_error: reason,
+      last_error: ReasonSummary.sanitize(reason),
       last_failure_at: DateTime.utc_now(),
       recorder_gap?: true
     })
@@ -362,7 +385,7 @@ defmodule BeamConsole.Collector do
       stale?: not is_nil(state.last_error),
       scanning?: not is_nil(state.scan),
       subscriber_count: map_size(state.subscribers),
-      last_error: state.last_error && ReasonSummary.sanitize(state.last_error),
+      last_error: state.last_error,
       failed_at: state.last_failure_at
     }
   end
@@ -382,21 +405,30 @@ defmodule BeamConsole.Collector do
   end
 
   defp add_subscriber(state, subscriber) do
-    if Map.has_key?(state.subscribers, subscriber) do
-      state
-    else
-      reference = Process.monitor(subscriber)
+    case Map.get(state.subscribers, subscriber) do
+      %Subscriber{} = delivery ->
+        delivery = %{
+          delivery
+          | outstanding_sequence: nil,
+            pending_sequence: nil,
+            last_acked_sequence: state.sequence
+        }
 
-      delivery = %Subscriber{
-        monitor_ref: reference,
-        last_acked_sequence: state.sequence
-      }
+        %{state | subscribers: Map.put(state.subscribers, subscriber, delivery)}
 
-      if map_size(state.subscribers) == 0 do
-        activate_lifecycle_recorder(state.lifecycle_recorder)
-      end
+      nil ->
+        reference = Process.monitor(subscriber)
 
-      %{state | subscribers: Map.put(state.subscribers, subscriber, delivery)}
+        delivery = %Subscriber{
+          monitor_ref: reference,
+          last_acked_sequence: state.sequence
+        }
+
+        if map_size(state.subscribers) == 0 do
+          activate_lifecycle_recorder(state.lifecycle_recorder)
+        end
+
+        %{state | subscribers: Map.put(state.subscribers, subscriber, delivery)}
     end
   end
 
@@ -506,11 +538,16 @@ defmodule BeamConsole.Collector do
     {%{snapshot | lifecycle_observations: []}, observations}
   end
 
-  defp deliver_lifecycle_observations(%{lifecycle_recorder: nil} = state, _frame, _observations) do
+  defp deliver_lifecycle_observations(
+         %{lifecycle_recorder: nil} = state,
+         _frame,
+         _observations,
+         _options
+       ) do
     state
   end
 
-  defp deliver_lifecycle_observations(state, frame, observations) do
+  defp deliver_lifecycle_observations(state, frame, observations, options) do
     recorder = state.lifecycle_recorder
 
     if recorder_available?(recorder) do
@@ -521,7 +558,10 @@ defmodule BeamConsole.Collector do
       LifecycleRecorder.observe(
         frame,
         observations,
-        [reset?: state.recorder_gap?, source_epoch: state.recorder_epoch],
+        Keyword.merge(options,
+          reset?: state.recorder_gap?,
+          source_epoch: state.recorder_epoch
+        ),
         recorder
       )
 

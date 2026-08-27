@@ -1,4 +1,4 @@
-if Code.ensure_loaded?(Phoenix.Controller) do
+if Code.ensure_loaded?(Phoenix.Controller) and Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.Assets do
     @moduledoc """
     Serves BeamConsole's self-contained, digest-addressed browser assets.
@@ -43,49 +43,76 @@ if Code.ensure_loaded?(Phoenix.Controller) do
                       |> Base.encode16(case: :lower)
                       |> binary_part(0, 12)
 
+    @external_resource support_path = Path.join(@static_path, "beam_console_support.mjs")
+    @support File.read!(support_path)
+    @support_digest @support
+                    |> then(&:crypto.hash(:sha256, &1))
+                    |> Base.encode16(case: :lower)
+                    |> binary_part(0, 12)
+
+    @external_resource theme_path = Path.join(@static_path, "beam_console_theme.js")
+    @theme File.read!(theme_path)
+    @theme_digest @theme
+                  |> then(&:crypto.hash(:sha256, &1))
+                  |> Base.encode16(case: :lower)
+                  |> binary_part(0, 12)
+
     @external_resource client_path = Path.join(@static_path, "beam_console.mjs")
     @client_template File.read!(client_path)
     @js @client_template
         |> String.replace("__PHOENIX_DIGEST__", @phoenix_digest)
         |> String.replace("__LIVE_VIEW_DIGEST__", @live_view_digest)
         |> String.replace("__CYTOSCAPE_DIGEST__", @cytoscape_digest)
+        |> String.replace("__SUPPORT_DIGEST__", @support_digest)
     @js_digest @js
                |> then(&:crypto.hash(:sha256, &1))
                |> Base.encode16(case: :lower)
                |> binary_part(0, 12)
 
-    @spec css_digest() :: String.t()
     @doc "Returns the digest embedded in the current BeamConsole stylesheet URL."
+    @spec css_digest() :: String.t()
     def css_digest do
       @css_digest
     end
 
-    @spec js_digest() :: String.t()
     @doc "Returns the digest embedded in the current BeamConsole client URL."
+    @spec js_digest() :: String.t()
     def js_digest do
       @js_digest
     end
 
-    @spec phoenix_digest() :: String.t()
     @doc "Returns the digest for the vendored Phoenix browser module."
+    @spec phoenix_digest() :: String.t()
     def phoenix_digest do
       @phoenix_digest
     end
 
-    @spec live_view_digest() :: String.t()
     @doc "Returns the digest for the vendored Phoenix LiveView browser module."
+    @spec live_view_digest() :: String.t()
     def live_view_digest do
       @live_view_digest
     end
 
-    @spec cytoscape_digest() :: String.t()
     @doc "Returns the digest for the vendored Cytoscape graph module."
+    @spec cytoscape_digest() :: String.t()
     def cytoscape_digest do
       @cytoscape_digest
     end
 
-    @spec css(Plug.Conn.t(), map()) :: Plug.Conn.t()
+    @doc "Returns the digest for BeamConsole's browser support module."
+    @spec support_digest() :: String.t()
+    def support_digest do
+      @support_digest
+    end
+
+    @doc "Returns the digest for BeamConsole's first-paint theme bootstrap."
+    @spec theme_digest() :: String.t()
+    def theme_digest do
+      @theme_digest
+    end
+
     @doc "Serves the stylesheet when the requested digest matches the current asset."
+    @spec css(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def css(%{params: %{"digest" => @css_digest}} = conn, _params) do
       send_asset(conn, "text/css", @css)
     end
@@ -94,8 +121,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
-    @spec js(Plug.Conn.t(), map()) :: Plug.Conn.t()
     @doc "Serves the BeamConsole browser client when its digest matches."
+    @spec js(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def js(%{params: %{"digest" => @js_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @js)
     end
@@ -104,8 +131,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
-    @spec phoenix(Plug.Conn.t(), map()) :: Plug.Conn.t()
     @doc "Serves the vendored Phoenix browser module when its digest matches."
+    @spec phoenix(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def phoenix(%{params: %{"digest" => @phoenix_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @phoenix)
     end
@@ -114,8 +141,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
-    @spec live_view(Plug.Conn.t(), map()) :: Plug.Conn.t()
     @doc "Serves the vendored LiveView browser module when its digest matches."
+    @spec live_view(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def live_view(%{params: %{"digest" => @live_view_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @live_view)
     end
@@ -124,13 +151,33 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
-    @spec cytoscape(Plug.Conn.t(), map()) :: Plug.Conn.t()
     @doc "Serves the vendored Cytoscape module when its digest matches."
+    @spec cytoscape(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def cytoscape(%{params: %{"digest" => @cytoscape_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @cytoscape)
     end
 
     def cytoscape(conn, _params) do
+      send_resp(conn, 404, "Not Found")
+    end
+
+    @doc "Serves BeamConsole's browser support module when its digest matches."
+    @spec support(Plug.Conn.t(), map()) :: Plug.Conn.t()
+    def support(%{params: %{"digest" => @support_digest}} = conn, _params) do
+      send_asset(conn, "text/javascript", @support)
+    end
+
+    def support(conn, _params) do
+      send_resp(conn, 404, "Not Found")
+    end
+
+    @doc "Serves BeamConsole's first-paint theme bootstrap when its digest matches."
+    @spec theme(Plug.Conn.t(), map()) :: Plug.Conn.t()
+    def theme(%{params: %{"digest" => @theme_digest}} = conn, _params) do
+      send_asset(conn, "text/javascript", @theme)
+    end
+
+    def theme(conn, _params) do
       send_resp(conn, 404, "Not Found")
     end
 

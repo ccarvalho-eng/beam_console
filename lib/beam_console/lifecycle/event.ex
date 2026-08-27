@@ -42,11 +42,7 @@ defmodule BeamConsole.Lifecycle.Event do
           | :observed_stop
           | :terminated
           | :replacement_observed
-          | :topology_added
-          | :topology_removed
-          | :mailbox_growth
-          | :connection_lost
-  @type evidence :: :monitor | :slot_reconciliation | :snapshot_diff | :recorder | :connection
+  @type evidence :: :monitor | :slot_reconciliation | :snapshot_diff | :recorder
   @type certainty :: :direct | :strong | :medium | :sampled | :missed | :partial | :ambiguous
   @type detail_value :: String.t() | atom() | integer() | boolean() | nil
   @type t :: %__MODULE__{

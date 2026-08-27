@@ -34,4 +34,12 @@ defmodule BeamConsoleWeb.Console.ParamsTest do
     assert Paths.path("/dev/beam", :activity, params) ==
              "/dev/beam/activity?entity=proc_1"
   end
+
+  test "builds absolute paths for a root console mount" do
+    params = Params.normalize(%{"q" => "worker"}, :process_map)
+
+    assert Paths.path("/", :process_map, %{}) == "/"
+    assert Paths.path("/", :process_map, params) == "/?q=worker"
+    assert Paths.path("/", :lifecycle, params) == "/lifecycle?q=worker"
+  end
 end

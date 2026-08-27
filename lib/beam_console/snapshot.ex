@@ -12,6 +12,7 @@ defmodule BeamConsole.Snapshot do
   @enforce_keys [:sequence, :sampled_at, :local_node_id]
   defstruct sequence: 0,
             sampled_at: nil,
+            monotonic_ms: nil,
             local_node_id: nil,
             nodes: %{},
             applications: %{},
@@ -21,6 +22,7 @@ defmodule BeamConsole.Snapshot do
             lifecycle_observations: [],
             runtime_sample: nil,
             coverage: %Coverage{},
+            collector_epoch: nil,
             stale?: false
 
   @type private_index_value ::
@@ -29,6 +31,7 @@ defmodule BeamConsole.Snapshot do
   @type t :: %__MODULE__{
           sequence: non_neg_integer(),
           sampled_at: DateTime.t(),
+          monotonic_ms: integer() | nil,
           local_node_id: String.t(),
           nodes: %{String.t() => BeamConsole.NodeInfo.t()},
           applications: %{String.t() => BeamConsole.ApplicationInfo.t()},
@@ -38,6 +41,7 @@ defmodule BeamConsole.Snapshot do
           lifecycle_observations: [Observation.t()],
           runtime_sample: BeamConsole.Runtime.Sample.t() | nil,
           coverage: Coverage.t(),
+          collector_epoch: String.t() | nil,
           stale?: boolean()
         }
 end

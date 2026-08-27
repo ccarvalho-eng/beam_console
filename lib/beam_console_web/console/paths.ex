@@ -10,8 +10,8 @@ defmodule BeamConsoleWeb.Console.Paths do
     runtime: "/runtime"
   }
 
-  @spec path(String.t(), Params.tab(), Params.t() | map()) :: String.t()
   @doc "Builds a tab path with normalized, relevant query parameters."
+  @spec path(String.t(), Params.tab(), Params.t() | map()) :: String.t()
   def path(prefix, tab, params \\ %{}) when is_binary(prefix) and is_map(params) do
     normalized =
       case params do
@@ -19,9 +19,22 @@ defmodule BeamConsoleWeb.Console.Paths do
         value -> Params.normalize(value, tab)
       end
 
-    base = String.trim_trailing(prefix, "/") <> Map.fetch!(@segments, tab)
+    base =
+      prefix
+      |> String.trim_trailing("/")
+      |> Kernel.<>(Map.fetch!(@segments, tab))
+      |> normalize_root()
+
     query = normalized |> Params.query_params() |> URI.encode_query()
 
     if query == "", do: base, else: base <> "?" <> query
+  end
+
+  defp normalize_root("") do
+    "/"
+  end
+
+  defp normalize_root(path) do
+    path
   end
 end

@@ -3,7 +3,7 @@ defmodule BeamConsoleDemoWeb.LabLive do
 
   alias BeamConsoleDemo.ProcessLab
 
-  @impl true
+  @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     {:ok,
      socket
@@ -12,7 +12,7 @@ defmodule BeamConsoleDemoWeb.LabLive do
      |> assign(:lab, ProcessLab.snapshot())}
   end
 
-  @impl true
+  @impl Phoenix.LiveView
   def handle_event("start-child", _params, socket) do
     {:noreply, run_action(socket, "Started a dynamic child", &ProcessLab.start_dynamic_child/0)}
   end
@@ -35,7 +35,7 @@ defmodule BeamConsoleDemoWeb.LabLive do
      run_action(socket, "Spawned short-lived supervised tasks", &ProcessLab.spawn_short_tasks/0)}
   end
 
-  @impl true
+  @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>

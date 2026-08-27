@@ -1,0 +1,179 @@
+.beam-console-sidebar,
+.beam-console-inspector {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bc-surface-muted);
+  scrollbar-color: var(--bc-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.beam-console-sidebar {
+  border-right: 1px solid var(--bc-border);
+}
+
+.beam-console-inspector {
+  border-left: 1px solid var(--bc-border);
+}
+
+.beam-console-panel-heading {
+  min-height: var(--bc-panel-header-height);
+  padding: 13px 15px 11px;
+  border-bottom: 1px solid var(--bc-border);
+  background: color-mix(in srgb, var(--bc-surface-muted), var(--bc-surface) 38%);
+}
+
+.beam-console-heading-line {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.beam-console-panel-heading h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.beam-console-panel-heading p {
+  margin: 3px 0 0;
+  color: var(--bc-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.beam-console-heading-count {
+  padding: 2px 6px;
+  border: 1px solid var(--bc-border);
+  border-radius: 999px;
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.beam-console-list {
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+}
+
+.beam-console-tree-branch > summary {
+  list-style: none;
+}
+
+.beam-console-tree-branch > summary::-webkit-details-marker {
+  display: none;
+}
+
+.beam-console-tree-caret {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+}
+
+.beam-console-tree-caret::before {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--bc-subtle);
+  content: "";
+  transform-origin: 2.5px 4px;
+  transition: transform 120ms ease;
+}
+
+.beam-console-tree-branch[open] > summary .beam-console-tree-caret::before {
+  transform: rotate(90deg);
+}
+
+.beam-console-list ul {
+  position: relative;
+  margin: 4px 0 8px 17px;
+  padding: 3px 0 3px 13px;
+  border-left: 1px solid var(--bc-border-strong);
+  list-style: none;
+}
+
+.beam-console-list ul li {
+  position: relative;
+}
+
+.beam-console-list ul li::before {
+  position: absolute;
+  top: 17px;
+  left: -13px;
+  width: 11px;
+  border-top: 1px solid var(--bc-border-strong);
+  content: "";
+}
+
+.beam-console-list ul li:last-child::after {
+  position: absolute;
+  top: 18px;
+  bottom: -4px;
+  left: -14px;
+  width: 2px;
+  background: var(--bc-surface-muted);
+  content: "";
+}
+
+.beam-console-link {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--bc-text);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+  transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.beam-console-link:hover {
+  background: var(--bc-surface);
+}
+
+.beam-console-link.is-selected {
+  border-color: var(--bc-accent-border);
+  background: var(--bc-accent-soft);
+  color: color-mix(in srgb, var(--bc-accent), var(--bc-text) 28%);
+}
+
+.beam-console-link-label {
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beam-console-node-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border: 2px solid var(--bc-surface);
+  border-radius: 999px;
+  background: var(--bc-success);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bc-success), transparent 35%);
+}
+
+.beam-console-count {
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+

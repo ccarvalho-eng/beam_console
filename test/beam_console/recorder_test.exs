@@ -23,4 +23,23 @@ defmodule BeamConsole.RecorderTest do
     assert Recorder.resume(recorder).activity == :recording
     assert Recorder.events([], recorder).items == []
   end
+
+  test "rejects malformed query options without terminating the recorder" do
+    recorder =
+      start_supervised!({LifecycleRecorder, name: nil, config: Config.new!(), collector: nil})
+
+    assert {:error, {:invalid_query_options, :kinds}} =
+             Recorder.events([kinds: :terminated], recorder)
+
+    assert {:error, {:invalid_query_options, :now_ms}} =
+             Recorder.events([now_ms: "invalid"], recorder)
+
+    assert {:error, {:invalid_query_options, {:unknown, [:size_estimator]}}} =
+             Recorder.events(
+               [size_estimator: fn _item -> raise "must not run" end],
+               recorder
+             )
+
+    assert %BeamConsole.Recorder.Status{} = Recorder.status(recorder)
+  end
 end

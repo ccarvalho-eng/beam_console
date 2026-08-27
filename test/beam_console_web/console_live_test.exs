@@ -27,7 +27,11 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
   end
 
   test "renders the accessible console shell through the embedded route" do
-    {:ok, view, _html} = live(build_conn(), "/beam")
+    {:ok, view, html} = live(build_conn(), "/beam")
+
+    assert html =~ "/beam/assets/theme/#{BeamConsoleWeb.Assets.theme_digest()}"
+
+    assert theme_script_position(html) < stylesheet_position(html)
 
     assert has_element?(view, "#beam-console[phx-hook='BeamConsoleTheme']")
     assert has_element?(view, "#beam-console-graph[phx-hook='BeamConsoleGraph']")
@@ -59,6 +63,19 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
            )
 
     assert has_element?(view, "#beam-console-detail-empty")
+    assert has_element?(view, "button[phx-value-edges='supervision'][aria-pressed='true']")
+    assert has_element?(view, "button[phx-value-edges='relationships'][aria-pressed='false']")
+  end
+
+  test "updates process-map labels with the selected connection mode" do
+    {:ok, view, _html} = live(build_conn(), "/beam")
+
+    render_click(view, "set_edges", %{"edges" => "relationships"})
+
+    assert has_element?(view, "section[aria-label='Process relationship topology']")
+    assert has_element?(view, "button[phx-value-edges='relationships'][aria-pressed='true']")
+
+    assert has_element?(view, ".beam-console-graph-toolbar strong", "Live links and monitors")
   end
 
   test "pushes live topology samples while the graph preserves positions", %{snapshot: snapshot} do
@@ -85,15 +102,26 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     assert has_element?(view, "#beam-console-detail-empty")
   end
 
+  test "runs host authorization hooks with merged session data" do
+    assert {:ok, authorized, _html} = live(build_conn(), "/secure-beam")
+    assert :sys.get_state(authorized.pid).socket.assigns.authorized_by_host?
+
+    assert {:error, {:redirect, %{to: "/"}}} = live(build_conn(), "/blocked-beam")
+  end
+
   test "renders URL-backed lifecycle, activity, and runtime tabs" do
     {:ok, lifecycle, _html} = live(build_conn(), "/beam/lifecycle")
+    assert page_title(lifecycle) == "BeamConsole · Lifecycle"
     assert has_element?(lifecycle, "#beam-console-tab-lifecycle[aria-current='page']")
     assert has_element?(lifecycle, "#beam-console-lifecycle-list")
 
     {:ok, activity, _html} = live(build_conn(), "/beam/activity")
+    assert page_title(activity) == "BeamConsole · Activity"
     assert has_element?(activity, "#beam-console-tab-activity[aria-current='page']")
+    assert has_element?(activity, "#beam-console-search.is-placeholder input[disabled]")
 
     {:ok, runtime, _html} = live(build_conn(), "/beam/runtime")
+    assert page_title(runtime) == "BeamConsole · Runtime"
     assert has_element?(runtime, "#beam-console-tab-runtime[aria-current='page']")
   end
 
@@ -115,6 +143,96 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
 
     refute Map.has_key?(assigns, :snapshot)
     refute Enum.any?(Map.values(assigns), &match?(%BeamConsole.Snapshot{}, &1))
+    refute contains_chart_points?(assigns)
+  end
+
+  test "resubscribes after the shared collector restarts" do
+    {:ok, view, _html} = live(build_conn(), "/beam")
+    assert_push_event(view, "beam_console_graph", %{epoch: original_epoch})
+    original_collector = Process.whereis(BeamConsole.Collector)
+
+    assert :ok = Supervisor.terminate_child(BeamConsole.Supervisor, BeamConsole.Collector)
+
+    assert eventually(fn ->
+             state = :sys.get_state(view.pid)
+             state.socket.assigns.collector_pid == nil
+           end)
+
+    render_patch(view, "/beam/runtime")
+    render_click(view, "refresh", %{})
+    render_hook(view, "request_graph", %{})
+    assert Process.alive?(view.pid)
+
+    assert {:ok, replacement_collector} =
+             Supervisor.restart_child(BeamConsole.Supervisor, BeamConsole.Collector)
+
+    refute replacement_collector == original_collector
+
+    assert eventually(fn ->
+             Process.alive?(view.pid) and BeamConsole.status().subscriber_count >= 1
+           end)
+
+    assert eventually(fn ->
+             case BeamConsole.latest_snapshot() do
+               %BeamConsole.Snapshot{collector_epoch: epoch} -> epoch != original_epoch
+               nil -> false
+             end
+           end)
+
+    replacement_snapshot = BeamConsole.latest_snapshot()
+    replacement_epoch = replacement_snapshot.collector_epoch
+
+    render_patch(view, "/beam")
+
+    assert_push_event(
+      view,
+      "beam_console_graph",
+      %{epoch: ^replacement_epoch, sequence: replacement_sequence},
+      2_000
+    )
+
+    assert replacement_sequence >= 1
+  end
+
+  test "survives lifecycle recorder restart windows" do
+    {:ok, view, _html} = live(build_conn(), "/beam/lifecycle")
+
+    assert :ok =
+             Supervisor.terminate_child(
+               BeamConsole.Supervisor,
+               BeamConsole.Lifecycle.Recorder
+             )
+
+    on_exit(&ensure_child_started/0)
+
+    render_click(view, "toggle_recording", %{})
+    render_patch(view, "/beam/runtime")
+    assert Process.alive?(view.pid)
+
+    assert {:ok, _pid} =
+             Supervisor.restart_child(
+               BeamConsole.Supervisor,
+               BeamConsole.Lifecycle.Recorder
+             )
+
+    render_patch(view, "/beam/lifecycle")
+    assert Process.alive?(view.pid)
+  end
+
+  test "clears lazy recorder demand when the collector restarts after a view closes" do
+    BeamConsole.unsubscribe()
+    {:ok, view, _html} = live(build_conn(), "/beam")
+
+    assert eventually(fn -> BeamConsole.Recorder.status().demanded? end)
+    assert :ok = Supervisor.terminate_child(BeamConsole.Supervisor, BeamConsole.Collector)
+
+    on_exit(&ensure_child_started/0)
+    GenServer.stop(view.pid, :normal)
+
+    assert {:ok, _pid} =
+             Supervisor.restart_child(BeamConsole.Supervisor, BeamConsole.Collector)
+
+    assert eventually(fn -> not BeamConsole.Recorder.status().demanded? end)
   end
 
   test "renders categorized application folders and application details", %{snapshot: snapshot} do
@@ -125,5 +243,57 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     assert has_element?(view, "[id$='application-category-dependencies']")
     assert has_element?(view, "[id$='application-category-otp']")
     assert has_element?(view, "#beam-console-application-detail")
+  end
+
+  defp contains_chart_points?(value) when is_struct(value) do
+    false
+  end
+
+  defp contains_chart_points?(value) when is_map(value) do
+    Enum.any?(value, fn
+      {:points, points} when is_list(points) -> points != []
+      {_key, nested} -> contains_chart_points?(nested)
+    end)
+  end
+
+  defp contains_chart_points?(value) when is_list(value) do
+    Enum.any?(value, &contains_chart_points?/1)
+  end
+
+  defp contains_chart_points?(_value) do
+    false
+  end
+
+  defp theme_script_position(html) do
+    {position, _length} = :binary.match(html, "/assets/theme/")
+    position
+  end
+
+  defp stylesheet_position(html) do
+    {position, _length} = :binary.match(html, "rel=\"stylesheet\"")
+    position
+  end
+
+  defp ensure_child_started do
+    Enum.each([BeamConsole.Lifecycle.Recorder, BeamConsole.Collector], fn child ->
+      if is_nil(Process.whereis(child)) do
+        Supervisor.restart_child(BeamConsole.Supervisor, child)
+      end
+    end)
+  end
+
+  defp eventually(function, attempts \\ 40)
+
+  defp eventually(function, 0) do
+    function.()
+  end
+
+  defp eventually(function, attempts) do
+    if function.() do
+      true
+    else
+      Process.sleep(25)
+      eventually(function, attempts - 1)
+    end
   end
 end

@@ -8,6 +8,11 @@ defmodule BeamConsole.Diff do
 
   alias BeamConsole.Snapshot
 
+  @type entity_id :: String.t()
+  @type field ::
+          :observed_started | :observed_stopped | :changed | :edge_added | :edge_removed
+  @type omission_counts :: %{optional(field()) => non_neg_integer()}
+
   @enforce_keys [:from_sequence, :to_sequence]
   defstruct from_sequence: 0,
             to_sequence: 0,
@@ -16,9 +21,9 @@ defmodule BeamConsole.Diff do
             changed: [],
             edge_added: [],
             edge_removed: [],
-            omitted: 0
+            omitted: 0,
+            omitted_by: %{}
 
-  @type entity_id :: String.t()
   @type t :: %__MODULE__{
           from_sequence: non_neg_integer(),
           to_sequence: non_neg_integer(),
@@ -27,28 +32,32 @@ defmodule BeamConsole.Diff do
           changed: [entity_id()],
           edge_added: [entity_id()],
           edge_removed: [entity_id()],
-          omitted: non_neg_integer()
+          omitted: non_neg_integer(),
+          omitted_by: omission_counts()
         }
 
-  @spec between(Snapshot.t() | nil, Snapshot.t(), non_neg_integer()) :: t()
   @doc """
   Computes a bounded difference from one snapshot to the next.
 
   Passing `nil` as the previous snapshot reports current processes as observed
   starts. Once the event limit is reached, remaining records are counted in
-  `omitted`.
+  `omitted`; `omitted_by` preserves the affected change categories.
   """
+  @spec between(Snapshot.t() | nil, Snapshot.t(), non_neg_integer()) :: t()
   def between(previous, current, limit \\ 500)
 
   def between(nil, %Snapshot{} = current, limit) do
     started = current.processes |> Map.keys() |> Enum.sort()
     {kept, omitted} = cap(started, limit)
 
+    omitted_by = omission_map(:observed_started, omitted)
+
     %__MODULE__{
       from_sequence: 0,
       to_sequence: current.sequence,
       observed_started: kept,
-      omitted: omitted
+      omitted: omitted,
+      omitted_by: omitted_by
     }
   end
 
@@ -75,11 +84,16 @@ defmodule BeamConsole.Diff do
       {:edge_removed, previous_edges |> MapSet.difference(current_edges) |> Enum.sort()}
     ]
 
-    {fields, omitted} = cap_records(records, limit)
+    {fields, omitted, omitted_by} = cap_records(records, limit)
 
     struct!(
       __MODULE__,
-      [from_sequence: previous.sequence, to_sequence: current.sequence, omitted: omitted] ++
+      [
+        from_sequence: previous.sequence,
+        to_sequence: current.sequence,
+        omitted: omitted,
+        omitted_by: omitted_by
+      ] ++
         fields
     )
   end
@@ -91,10 +105,22 @@ defmodule BeamConsole.Diff do
 
   defp cap_records(records, limit) do
     records
-    |> Enum.map_reduce({limit, 0}, fn {key, values}, {remaining, omitted} ->
+    |> Enum.map_reduce({limit, 0, %{}}, fn {key, values}, {remaining, omitted, omitted_by} ->
       {kept, newly_omitted} = cap(values, remaining)
-      {{key, kept}, {max(remaining - length(kept), 0), omitted + newly_omitted}}
+      omitted_by = Map.merge(omitted_by, omission_map(key, newly_omitted))
+
+      {{key, kept}, {max(remaining - length(kept), 0), omitted + newly_omitted, omitted_by}}
     end)
-    |> then(fn {fields, {_remaining, omitted}} -> {fields, omitted} end)
+    |> then(fn {fields, {_remaining, omitted, omitted_by}} ->
+      {fields, omitted, omitted_by}
+    end)
+  end
+
+  defp omission_map(_key, 0) do
+    %{}
+  end
+
+  defp omission_map(key, omitted) do
+    %{key => omitted}
   end
 end

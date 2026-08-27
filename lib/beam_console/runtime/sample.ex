@@ -26,9 +26,7 @@ defmodule BeamConsole.Runtime.Sample do
             scheduler_count: nil,
             run_queue: nil,
             collector_scan_ms: nil,
-            collector_partial?: false,
-            recorder_event_count: 0,
-            recorder_dropped: 0
+            collector_partial?: false
 
   @type t :: %__MODULE__{
           sequence: non_neg_integer(),
@@ -50,8 +48,6 @@ defmodule BeamConsole.Runtime.Sample do
           scheduler_count: pos_integer() | nil,
           run_queue: non_neg_integer() | nil,
           collector_scan_ms: non_neg_integer() | nil,
-          collector_partial?: boolean(),
-          recorder_event_count: non_neg_integer(),
-          recorder_dropped: non_neg_integer()
+          collector_partial?: boolean()
         }
 end

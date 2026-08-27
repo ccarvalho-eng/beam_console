@@ -7,8 +7,8 @@ defmodule BeamConsole.Activity do
 
   @mover_limit 25
 
-  @spec sample(Snapshot.t() | nil, Snapshot.t(), integer()) :: Sample.t()
   @doc "Builds aggregate activity rates and ranked top movers without retaining either snapshot."
+  @spec sample(Snapshot.t() | nil, Snapshot.t(), integer()) :: Sample.t()
   def sample(nil, %Snapshot{} = current, monotonic_ms) do
     empty_sample(current, monotonic_ms)
   end
@@ -18,8 +18,16 @@ defmodule BeamConsole.Activity do
   end
 
   def sample(%Snapshot{} = previous, %Snapshot{} = current, monotonic_ms) do
-    elapsed_ms = max(DateTime.diff(current.sampled_at, previous.sampled_at, :millisecond), 1)
+    elapsed_ms = elapsed_ms(previous.monotonic_ms, current.monotonic_ms || monotonic_ms)
 
+    if is_nil(elapsed_ms) do
+      empty_sample(current, monotonic_ms)
+    else
+      compare_samples(previous, current, monotonic_ms, elapsed_ms)
+    end
+  end
+
+  defp compare_samples(previous, current, monotonic_ms, elapsed_ms) do
     movers =
       current.processes
       |> Map.values()
@@ -34,6 +42,15 @@ defmodule BeamConsole.Activity do
       top_movers: Enum.take(movers, @mover_limit),
       omitted: max(length(movers) - @mover_limit, 0)
     }
+  end
+
+  defp elapsed_ms(previous, current)
+       when is_integer(previous) and is_integer(current) and current > previous do
+    current - previous
+  end
+
+  defp elapsed_ms(_previous, _current) do
+    nil
   end
 
   defp empty_sample(current, monotonic_ms) do

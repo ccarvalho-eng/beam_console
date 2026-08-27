@@ -7,11 +7,11 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:streams, :map, required: true)
     attr(:recorder_status, :map, required: true)
     attr(:recorder_label, :string, required: true)
-    attr(:lifecycle_query, :map, required: true)
+    attr(:lifecycle_meta, :map, required: true)
     attr(:selected_id, :string, default: nil)
 
-    @spec lifecycle(map()) :: Phoenix.LiveView.Rendered.t()
     @doc "Renders the newest bounded lifecycle observations with evidence language."
+    @spec lifecycle(map()) :: Phoenix.LiveView.Rendered.t()
     def lifecycle(assigns) do
       ~H"""
       <main class="beam-console-main beam-console-tab-main">
@@ -34,7 +34,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
                 <span>Events retained</span><strong>{@recorder_status.history.event_count}</strong>
               </div>
               <div>
-                <span>Omitted</span><strong>{@recorder_status.omitted + @lifecycle_query.omitted}</strong>
+                <span>Omitted</span><strong>{@recorder_status.omitted + @lifecycle_meta.omitted}</strong>
               </div>
             </div>
 
@@ -72,7 +72,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
               </button>
             </div>
 
-            <div :if={@lifecycle_query.items == []} class="beam-console-empty">
+            <div :if={@lifecycle_meta.empty?} class="beam-console-empty">
               <div class="beam-console-empty-mark" aria-hidden="true">···</div>
               No lifecycle observations match this view yet.
             </div>

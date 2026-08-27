@@ -9,27 +9,28 @@ defmodule BeamConsole.Recorder.Query do
   alias BeamConsole.Lifecycle.Event
   alias BeamConsole.Recorder.Frame
   alias BeamConsole.Recorder.History
-  alias BeamConsole.Recorder.Point
 
   defstruct items: [],
             omitted: 0,
             dropped: 0,
             available_from_ms: nil,
             available_to_ms: nil,
-            segment: 0
+            segment: 0,
+            chart_points_limit: 240
 
-  @type item :: Event.t() | Frame.t() | Point.t()
+  @type item :: Event.t() | Frame.t()
   @type t :: %__MODULE__{
           items: [item()],
           omitted: non_neg_integer(),
           dropped: non_neg_integer(),
           available_from_ms: integer() | nil,
           available_to_ms: integer() | nil,
-          segment: non_neg_integer()
+          segment: non_neg_integer(),
+          chart_points_limit: pos_integer()
         }
 
-  @spec events(History.t(), keyword()) :: {History.t(), t()}
   @doc "Returns newest lifecycle events under the configured timeline cap."
+  @spec events(History.t(), keyword()) :: {History.t(), t()}
   def events(history, options \\ []) do
     history = prune(history, options)
     kinds = Keyword.get(options, :kinds)
@@ -46,22 +47,13 @@ defmodule BeamConsole.Recorder.Query do
        filtered,
        requested_limit(options, history.config.timeline_limit),
        history.dropped_events,
-       history.segment
+       history.segment,
+       history.config.chart_points_limit
      )}
   end
 
-  @spec series(History.t(), String.t(), keyword()) :: {History.t(), t()}
-  @doc "Returns ordered scalar points for one opaque process entity ID."
-  def series(history, entity_id, options \\ []) when is_binary(entity_id) do
-    history = prune(history, options)
-    points = history.series |> Map.get(entity_id, %{points: []}) |> Map.fetch!(:points)
-    limit = requested_limit(options, history.config.chart_points_limit)
-
-    {history, build_result(points, limit, history.dropped_points, history.segment)}
-  end
-
-  @spec frames(History.t(), keyword()) :: {History.t(), t()}
   @doc "Returns ordered aggregate frames under the configured frame cap."
+  @spec frames(History.t(), keyword()) :: {History.t(), t()}
   def frames(history, options \\ []) do
     history = prune(history, options)
     since_ms = Keyword.get(options, :since_ms)
@@ -76,7 +68,8 @@ defmodule BeamConsole.Recorder.Query do
        filtered,
        requested_limit(options, history.config.frame_limit),
        history.dropped_frames,
-       history.segment
+       history.segment,
+       history.config.chart_points_limit
      )}
   end
 
@@ -96,7 +89,7 @@ defmodule BeamConsole.Recorder.Query do
     end
   end
 
-  defp build_result(values, limit, dropped, segment) do
+  defp build_result(values, limit, dropped, segment, chart_points_limit) do
     kept = values |> Enum.take(-limit) |> Enum.reverse()
 
     %__MODULE__{
@@ -105,7 +98,8 @@ defmodule BeamConsole.Recorder.Query do
       dropped: dropped,
       available_from_ms: boundary_time(List.first(values)),
       available_to_ms: boundary_time(List.last(values)),
-      segment: segment
+      segment: segment,
+      chart_points_limit: chart_points_limit
     }
   end
 
@@ -113,7 +107,11 @@ defmodule BeamConsole.Recorder.Query do
     nil
   end
 
+  defp boundary_time(%Event{} = event) do
+    event.observed_at_ms
+  end
+
   defp boundary_time(value) do
-    value.monotonic_ms
+    value.sampled_at_ms
   end
 end

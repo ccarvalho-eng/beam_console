@@ -15,8 +15,8 @@ defmodule BeamConsoleWeb.Console.ApplicationTreePresenter do
           applications: [ApplicationInfo.t()]
         }
 
-  @spec present(Snapshot.t(), ApplicationTreeConfig.t()) :: [category_view()]
   @doc "Returns every configured category with sorted application rows and stable IDs."
+  @spec present(Snapshot.t(), ApplicationTreeConfig.t()) :: [category_view()]
   def present(%Snapshot{} = snapshot, %ApplicationTreeConfig{} = config) do
     applications = Map.values(snapshot.applications)
     inferred_hosts = inferred_hosts(applications)

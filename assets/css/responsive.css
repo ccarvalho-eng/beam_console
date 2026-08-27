@@ -1,0 +1,195 @@
+@media (max-width: 1180px) {
+  .beam-console-shell {
+    padding: 12px;
+  }
+
+  .beam-console-frame {
+    grid-template-columns: 230px minmax(0, 1fr);
+    grid-template-rows: 112px minmax(680px, calc(100vh - 136px)) auto;
+  }
+
+  .beam-console-header {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 8px 12px;
+    padding-block: 8px;
+  }
+
+  .beam-console-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+  }
+
+  .beam-console-search-form {
+    width: min(240px, 25vw);
+  }
+
+  .beam-console-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .beam-console-inspector {
+    grid-column: 1 / -1;
+    min-height: 260px;
+    border-top: 1px solid var(--bc-border);
+    border-left: 0;
+  }
+
+  .beam-console-detail {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.2fr);
+    gap: 16px;
+  }
+
+  .beam-console-detail-heading,
+  .beam-console-metrics {
+    grid-column: 1;
+  }
+
+  .beam-console-fields {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .beam-console-shell {
+    padding: 0;
+  }
+
+  .beam-console-frame {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .beam-console-header {
+    display: flex;
+    min-height: 68px;
+    flex-wrap: wrap;
+    padding: 11px 12px;
+  }
+
+  .beam-console-actions {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .beam-console-brand {
+    flex: 0 0 auto;
+  }
+
+  .beam-console-tabs {
+    width: 100%;
+    order: 2;
+    justify-content: space-between;
+  }
+
+  .beam-console-tab {
+    flex: 1;
+    text-align: center;
+  }
+
+  .beam-console-status {
+    display: none;
+  }
+
+  .beam-console-search-form {
+    width: 100%;
+  }
+
+  .beam-console-search-form.is-placeholder {
+    display: none;
+  }
+
+  .beam-console-sidebar {
+    max-height: 230px;
+    border-right: 0;
+    border-bottom: 1px solid var(--bc-border);
+  }
+
+  .beam-console-main {
+    grid-template-rows: 470px 300px;
+  }
+
+  .beam-console-tab-main {
+    height: clamp(520px, 70dvh, 760px);
+    flex: 0 0 clamp(520px, 70dvh, 760px);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .beam-console-graph-stage {
+    grid-template-rows: auto 412px;
+  }
+
+  .beam-console-graph-toolbar {
+    min-height: 44px;
+    justify-content: flex-end;
+    padding: 6px 10px;
+  }
+
+  .beam-console-graph-toolbar > div:first-child {
+    display: none;
+  }
+
+  .beam-console-legend {
+    display: none;
+  }
+
+  .beam-console-graph-controls {
+    flex: 0 0 auto;
+  }
+
+  .beam-console-process-columns,
+  .beam-console-process-row {
+    grid-template-columns: minmax(150px, 1fr) 68px 64px;
+  }
+
+  .beam-console-process-columns span:nth-child(4),
+  .beam-console-process-row span:nth-child(4) {
+    display: none;
+  }
+
+  .beam-console-inspector {
+    min-height: 340px;
+  }
+
+  .beam-console-recorder-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .beam-console-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .beam-console-lifecycle-row {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .beam-console-lifecycle-row time {
+    display: none;
+  }
+
+  .beam-console-detail {
+    display: block;
+  }
+
+  .beam-console-fields {
+    margin-top: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .beam-console-shell *,
+  .beam-console-shell *::before,
+  .beam-console-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

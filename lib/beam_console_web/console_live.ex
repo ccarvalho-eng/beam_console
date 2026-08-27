@@ -18,21 +18,24 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     import BeamConsoleWeb.Components.TreeComponents, only: [runtime_tree: 1]
 
     alias BeamConsole.ApplicationTreeConfig
-    alias BeamConsole.Recorder
     alias BeamConsole.Recorder.Status, as: RecorderStatus
     alias BeamConsole.Snapshot
     alias BeamConsoleWeb.Console.ActivityPresenter
     alias BeamConsoleWeb.Console.ApplicationTreePresenter
+    alias BeamConsoleWeb.Console.CollectorClient
     alias BeamConsoleWeb.Console.DashboardPresenter
     alias BeamConsoleWeb.Console.LifecyclePresenter
     alias BeamConsoleWeb.Console.Params
     alias BeamConsoleWeb.Console.Paths
+    alias BeamConsoleWeb.Console.RecorderClient
     alias BeamConsoleWeb.Console.RuntimePresenter
     alias BeamConsoleWeb.Graph
 
     @process_limit 150
+    @collector_retry_min_ms 100
+    @collector_retry_max_ms 5_000
 
-    @impl true
+    @impl Phoenix.LiveView
     def mount(_params, _session, socket) do
       socket =
         socket
@@ -48,10 +51,14 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:graph_refresh_pending?, false)
         |> assign(:loading?, true)
         |> assign(:sequence, 0)
-        |> assign(:sampled_at, nil)
         |> assign(:status_label, "Sampling runtime")
         |> assign(:status_state, :loading)
-        |> assign(:collector_status, nil)
+        |> assign(:collector_pid, nil)
+        |> assign(:collector_epoch, nil)
+        |> assign(:collector_monitor_ref, nil)
+        |> assign(:collector_retry_attempt, 0)
+        |> assign(:collector_retry_timer, nil)
+        |> assign(:collector_retry_token, nil)
         |> assign(:recorder_status, %RecorderStatus{})
         |> assign(:recorder_label, "Inactive")
         |> assign(:process_count, 0)
@@ -61,7 +68,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:application_categories, [])
         |> assign(:nodes, [])
         |> assign(:coverage_warnings, [])
-        |> assign(:lifecycle_query, %BeamConsole.Recorder.Query{})
+        |> assign(:lifecycle_meta, %{empty?: true, omitted: 0})
         |> assign(:activity_summary, empty_activity_summary())
         |> assign(:activity_has_samples?, false)
         |> assign(:runtime_summary, empty_runtime_summary())
@@ -72,19 +79,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> stream(:top_movers, [])
 
       if connected?(socket) do
-        {:ok, snapshot} = BeamConsole.subscribe()
-
-        if is_nil(snapshot) do
-          _result = BeamConsole.refresh()
-        end
-
-        {:ok, socket}
+        {:ok, subscribe_collector(socket)}
       else
         {:ok, socket}
       end
     end
 
-    @impl true
+    @impl Phoenix.LiveView
     def handle_params(raw_params, _uri, socket) do
       params = Params.normalize(raw_params, socket.assigns.live_action)
 
@@ -96,7 +97,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket}
     end
 
-    @impl true
+    @impl Phoenix.LiveView
     def handle_event("search", %{"filters" => %{"q" => query}}, socket) when is_binary(query) do
       params = %{socket.assigns.params | query: String.slice(query, 0, 120)}
       {:noreply, push_patch(socket, to: current_path(socket, params))}
@@ -108,13 +109,17 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_event("select_entity", %{"id" => entity_id}, socket)
         when is_binary(entity_id) and entity_id != "" do
-      snapshot = BeamConsole.latest_snapshot()
+      case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
+        {:ok, snapshot} ->
+          selected_id =
+            if DashboardPresenter.valid_selection?(snapshot, entity_id), do: entity_id, else: nil
 
-      selected_id =
-        if DashboardPresenter.valid_selection?(snapshot, entity_id), do: entity_id, else: nil
+          params = %{socket.assigns.params | selected_id: selected_id}
+          {:noreply, push_patch(socket, to: current_path(socket, params))}
 
-      params = %{socket.assigns.params | selected_id: selected_id}
-      {:noreply, push_patch(socket, to: current_path(socket, params))}
+        {:error, :unavailable} ->
+          {:noreply, collector_unavailable(socket)}
+      end
     end
 
     def handle_event("select_entity", _params, socket) do
@@ -125,41 +130,96 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, push_latest_graph(socket)}
     end
 
+    def handle_event("set_edges", %{"edges" => edges}, socket)
+        when edges in ["supervision", "relationships"] do
+      params = %{socket.assigns.params | edges: edges}
+      {:noreply, push_patch(socket, to: current_path(socket, params))}
+    end
+
+    def handle_event("set_edges", _params, socket) do
+      {:noreply, socket}
+    end
+
     def handle_event("refresh", _params, socket) do
-      case BeamConsole.refresh() do
+      case CollectorClient.refresh(socket.assigns.collector_pid) do
         :ok -> {:noreply, assign(socket, :graph_refresh_pending?, true)}
         {:error, :rate_limited} -> {:noreply, socket}
+        {:error, :unavailable} -> {:noreply, collector_unavailable(socket)}
       end
     end
 
     def handle_event("toggle_recording", _params, socket) do
-      status =
+      result =
         case socket.assigns.recorder_status.activity do
-          :recording -> Recorder.pause()
-          _other -> Recorder.resume()
+          :recording -> RecorderClient.pause()
+          _other -> RecorderClient.resume()
         end
 
-      socket =
-        socket
-        |> assign_recorder_status(status)
-        |> load_lifecycle()
-        |> load_stats()
+      case result do
+        {:ok, status} ->
+          socket =
+            socket
+            |> assign_recorder_status(status)
+            |> load_lifecycle()
+            |> load_stats()
 
-      {:noreply, socket}
+          {:noreply, socket}
+
+        {:error, :unavailable} ->
+          {:noreply, assign_recorder_unavailable(socket)}
+      end
     end
 
-    @impl true
+    @impl Phoenix.LiveView
     def handle_info({:beam_console_snapshot, sequence}, socket) do
+      case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
+        {:ok, snapshot} ->
+          socket =
+            socket
+            |> refresh_view(snapshot)
+            |> assign(:graph_refresh_pending?, false)
+
+          _result = CollectorClient.acknowledge(socket.assigns.collector_pid, sequence)
+          {:noreply, socket}
+
+        {:error, :unavailable} ->
+          {:noreply, collector_unavailable(socket)}
+      end
+    end
+
+    def handle_info(
+          {:DOWN, reference, :process, _pid, _reason},
+          %{assigns: %{collector_monitor_ref: reference}} = socket
+        ) do
       socket =
         socket
-        |> refresh_view(BeamConsole.latest_snapshot())
-        |> assign(:graph_refresh_pending?, false)
+        |> assign(:collector_pid, nil)
+        |> assign(:collector_monitor_ref, nil)
+        |> assign(:status_label, "Reconnecting collector")
+        |> assign(:status_state, :stale)
+        |> schedule_collector_retry()
 
-      :ok = BeamConsole.acknowledge(sequence)
       {:noreply, socket}
     end
 
-    @impl true
+    def handle_info(
+          {:beam_console_resubscribe, token},
+          %{assigns: %{collector_retry_token: token}} = socket
+        ) do
+      socket =
+        socket
+        |> assign(:collector_retry_timer, nil)
+        |> assign(:collector_retry_token, nil)
+        |> subscribe_collector()
+
+      {:noreply, socket}
+    end
+
+    def handle_info({:beam_console_resubscribe, _stale_token}, socket) do
+      {:noreply, socket}
+    end
+
+    @impl Phoenix.LiveView
     def render(assigns) do
       ~H"""
       <div id="beam-console" class="beam-console-shell" phx-hook="BeamConsoleTheme">
@@ -191,6 +251,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             process_omitted_count={@process_omitted_count}
             selected_id={@selected_id}
             loading?={@loading?}
+            edge_preset={@params.edges}
           />
 
           <.lifecycle
@@ -198,7 +259,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             streams={@streams}
             recorder_status={@recorder_status}
             recorder_label={@recorder_label}
-            lifecycle_query={@lifecycle_query}
+            lifecycle_meta={@lifecycle_meta}
             selected_id={@selected_id}
           />
 
@@ -236,9 +297,76 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       |> assign(:filter_form, to_form(%{"q" => params.query}, as: :filters))
     end
 
+    defp subscribe_collector(socket) do
+      case Process.whereis(BeamConsole.Collector) do
+        collector when is_pid(collector) ->
+          subscribe_to_collector(socket, collector)
+
+        nil ->
+          schedule_collector_retry(socket)
+      end
+    end
+
+    defp subscribe_to_collector(socket, collector) do
+      reference = Process.monitor(collector)
+
+      case CollectorClient.subscribe(collector) do
+        {:ok, snapshot} ->
+          socket =
+            socket
+            |> cancel_collector_retry()
+            |> assign(:collector_pid, collector)
+            |> assign(:collector_monitor_ref, reference)
+            |> assign(:collector_retry_attempt, 0)
+
+          if is_nil(snapshot) do
+            _result = CollectorClient.refresh(collector)
+            socket
+          else
+            refresh_view(socket, snapshot)
+          end
+
+        {:error, :unavailable} ->
+          Process.demonitor(reference, [:flush])
+          socket |> assign(:collector_pid, nil) |> schedule_collector_retry()
+      end
+    end
+
+    defp schedule_collector_retry(%{assigns: %{collector_retry_timer: timer}} = socket)
+         when is_reference(timer) do
+      socket
+    end
+
+    defp schedule_collector_retry(socket) do
+      attempt = min(socket.assigns.collector_retry_attempt + 1, 16)
+      delay = min(@collector_retry_min_ms * Integer.pow(2, attempt - 1), @collector_retry_max_ms)
+      token = make_ref()
+      timer = Process.send_after(self(), {:beam_console_resubscribe, token}, delay)
+
+      socket
+      |> assign(:collector_retry_attempt, attempt)
+      |> assign(:collector_retry_timer, timer)
+      |> assign(:collector_retry_token, token)
+    end
+
+    defp cancel_collector_retry(%{assigns: %{collector_retry_timer: nil}} = socket) do
+      socket
+    end
+
+    defp cancel_collector_retry(socket) do
+      Process.cancel_timer(socket.assigns.collector_retry_timer)
+
+      socket
+      |> assign(:collector_retry_timer, nil)
+      |> assign(:collector_retry_token, nil)
+    end
+
     defp maybe_refresh_view(socket) do
       if connected?(socket) do
-        refresh_view(socket, BeamConsole.latest_snapshot())
+        case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
+          {:ok, snapshot} -> refresh_view(socket, snapshot)
+          {:error, :unavailable} -> collector_unavailable(socket)
+        end
       else
         socket
       end
@@ -248,7 +376,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       socket
       |> assign(:loading?, true)
       |> assign(:sequence, 0)
-      |> assign(:sampled_at, nil)
       |> assign(:selected, nil)
       |> assign(:detail, nil)
       |> assign(:nodes, [])
@@ -276,8 +403,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       socket =
         socket
         |> assign(:loading?, false)
+        |> assign(:collector_epoch, snapshot.collector_epoch)
         |> assign(:sequence, snapshot.sequence)
-        |> assign(:sampled_at, snapshot.sampled_at)
         |> assign(:selected, selected)
         |> assign(:detail, detail)
         |> assign(:nodes, DashboardPresenter.nodes(snapshot))
@@ -297,21 +424,31 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp assign_health(socket) do
-      collector_status = BeamConsole.status()
-      recorder_status = Recorder.status()
+      collector_status =
+        case CollectorClient.status(socket.assigns.collector_pid) do
+          {:ok, status} -> status
+          {:error, :unavailable} -> nil
+        end
 
       {status_label, status_state} =
         cond do
+          is_nil(collector_status) -> {"Reconnecting collector", :stale}
           collector_status.stale? -> {"Stale · sample #{collector_status.sequence}", :stale}
           collector_status.sequence == 0 -> {"Sampling runtime", :loading}
           true -> {"Live · sample #{collector_status.sequence}", :live}
         end
 
       socket
-      |> assign(:collector_status, collector_status)
       |> assign(:status_label, status_label)
       |> assign(:status_state, status_state)
-      |> assign_recorder_status(recorder_status)
+      |> assign_current_recorder_status()
+    end
+
+    defp assign_current_recorder_status(socket) do
+      case RecorderClient.status() do
+        {:ok, status} -> assign_recorder_status(socket, status)
+        {:error, :unavailable} -> assign_recorder_unavailable(socket)
+      end
     end
 
     defp assign_recorder_status(socket, recorder_status) do
@@ -320,46 +457,45 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       |> assign(:recorder_label, LifecyclePresenter.activity_label(recorder_status))
     end
 
+    defp assign_recorder_unavailable(socket) do
+      socket
+      |> assign(:recorder_status, %RecorderStatus{})
+      |> assign(:recorder_label, "Unavailable")
+    end
+
     defp load_lifecycle(socket) do
       if socket.assigns.tab == :lifecycle do
-        query = Recorder.events(LifecyclePresenter.query_options(socket.assigns.params))
-        rows = LifecyclePresenter.rows(query, socket.assigns.query)
+        case RecorderClient.events(LifecyclePresenter.query_options(socket.assigns.params)) do
+          {:ok, query} ->
+            rows = LifecyclePresenter.rows(query, socket.assigns.query)
 
-        socket
-        |> assign(:lifecycle_query, query)
-        |> stream(:lifecycle_events, rows, reset: true)
+            socket
+            |> assign(:lifecycle_meta, %{
+              empty?: rows == [],
+              omitted: LifecyclePresenter.omitted_count(query)
+            })
+            |> stream(:lifecycle_events, rows, reset: true)
+
+          {:error, _reason} ->
+            socket
+        end
       else
         socket
       end
     end
 
     defp load_stats(%{assigns: %{tab: :activity}} = socket) do
-      result = stats_query(socket)
-      presentation = ActivityPresenter.present(result, socket.assigns.sequence)
-      has_samples? = Enum.count(result.items, & &1.activity) >= 2
-
-      socket
-      |> assign(:activity_summary, presentation.summary)
-      |> assign(:activity_has_samples?, has_samples?)
-      |> stream(:top_movers, presentation.movers, reset: true)
-      |> push_event("beam_console_charts", %{
-        revision: socket.assigns.sequence,
-        charts: presentation.charts
-      })
+      case stats_query(socket) do
+        {:ok, result} -> load_activity_stats(socket, result)
+        {:error, _reason} -> socket
+      end
     end
 
     defp load_stats(%{assigns: %{tab: :runtime}} = socket) do
-      result = stats_query(socket)
-      presentation = RuntimePresenter.present(result, socket.assigns.sequence)
-      has_samples? = Enum.any?(result.items, & &1.runtime)
-
-      socket
-      |> assign(:runtime_summary, presentation.summary)
-      |> assign(:runtime_has_samples?, has_samples?)
-      |> push_event("beam_console_charts", %{
-        revision: socket.assigns.sequence,
-        charts: presentation.charts
-      })
+      case stats_query(socket) do
+        {:ok, result} -> load_runtime_stats(socket, result)
+        {:error, _reason} -> socket
+      end
     end
 
     defp load_stats(socket) do
@@ -368,7 +504,36 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp stats_query(socket) do
       window_ms = Params.window_ms(socket.assigns.params)
-      Recorder.samples(since_ms: System.system_time(:millisecond) - window_ms)
+      RecorderClient.samples(since_ms: System.system_time(:millisecond) - window_ms)
+    end
+
+    defp load_activity_stats(socket, result) do
+      presentation = ActivityPresenter.present(result, socket.assigns.sequence)
+      has_samples? = Enum.count(result.items, & &1.activity) >= 2
+
+      socket
+      |> assign(:activity_summary, presentation.summary)
+      |> assign(:activity_has_samples?, has_samples?)
+      |> stream(:top_movers, presentation.movers, reset: true)
+      |> push_event("beam_console_charts", %{
+        epoch: socket.assigns.collector_epoch,
+        revision: socket.assigns.sequence,
+        charts: presentation.charts
+      })
+    end
+
+    defp load_runtime_stats(socket, result) do
+      presentation = RuntimePresenter.present(result, socket.assigns.sequence)
+      has_samples? = Enum.any?(result.items, & &1.runtime)
+
+      socket
+      |> assign(:runtime_summary, presentation.summary)
+      |> assign(:runtime_has_samples?, has_samples?)
+      |> push_event("beam_console_charts", %{
+        epoch: socket.assigns.collector_epoch,
+        revision: socket.assigns.sequence,
+        charts: presentation.charts
+      })
     end
 
     defp selected_detail(_snapshot, %{kind: kind}) when kind != :process do
@@ -387,14 +552,41 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp push_latest_graph(socket) do
-      case BeamConsole.latest_snapshot() do
-        %Snapshot{} = snapshot -> push_graph(socket, snapshot)
-        nil -> socket
+      case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
+        {:ok, %Snapshot{} = snapshot} -> push_graph(socket, snapshot)
+        {:ok, nil} -> socket
+        {:error, :unavailable} -> collector_unavailable(socket)
       end
     end
 
+    defp collector_unavailable(socket) do
+      demonitor_collector(socket.assigns.collector_monitor_ref)
+
+      socket
+      |> assign(:collector_pid, nil)
+      |> assign(:collector_monitor_ref, nil)
+      |> assign(:status_label, "Reconnecting collector")
+      |> assign(:status_state, :stale)
+      |> schedule_collector_retry()
+    end
+
+    defp demonitor_collector(reference) when is_reference(reference) do
+      Process.demonitor(reference, [:flush])
+    end
+
+    defp demonitor_collector(_reference) do
+      :ok
+    end
+
     defp push_graph(%{assigns: %{tab: :process_map}} = socket, snapshot) do
-      payload = Graph.payload(snapshot, socket.assigns.selected_id, socket.assigns.graph_focus_id)
+      payload =
+        Graph.payload(snapshot,
+          selected_id: socket.assigns.selected_id,
+          focus_id: socket.assigns.graph_focus_id,
+          edge_preset: socket.assigns.params.edges,
+          selected_detail: socket.assigns.detail
+        )
+
       push_event(socket, "beam_console_graph", payload)
     end
 
