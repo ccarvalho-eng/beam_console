@@ -123,6 +123,10 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     {:ok, runtime, _html} = live(build_conn(), "/beam/runtime")
     assert page_title(runtime) == "BeamConsole · Runtime"
     assert has_element?(runtime, "#beam-console-tab-runtime[aria-current='page']")
+    assert has_element?(runtime, ".beam-console-runtime-summary div", "Supervisors")
+    assert has_element?(runtime, "#beam-console-atom-usage strong")
+    assert has_element?(runtime, "#beam-console-atom-description")
+    assert has_element?(runtime, "[data-chart-id='runtime-atoms']")
   end
 
   test "pauses and resumes recording from the header" do

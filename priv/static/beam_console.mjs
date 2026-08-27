@@ -4,7 +4,9 @@ import { LiveSocket } from "../live-view/__LIVE_VIEW_DIGEST__";
 import cytoscape from "../cytoscape/__CYTOSCAPE_DIGEST__";
 import {
   chartAriaLabel,
+  chartDomain,
   chartHeadline,
+  formatChartValue,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
@@ -367,19 +369,6 @@ const chartColors = element => {
 
 const svgElement = name => document.createElementNS("http://www.w3.org/2000/svg", name);
 
-const formatChartValue = (value, unit) => {
-  if (!Number.isFinite(value)) return "—";
-  if (unit === "bytes") {
-    const absolute = Math.abs(value);
-    if (absolute >= 1048576) return `${(value / 1048576).toFixed(1)} MB`;
-    if (absolute >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-    return `${Math.round(value)} B`;
-  }
-  if (unit === "reductions/s") return `${Math.round(value).toLocaleString()} /s`;
-  if (unit === "ms") return `${Math.round(value)} ms`;
-  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1);
-};
-
 const renderChart = (root, chart) => {
   const card = root.querySelector(`[data-chart-id="${CSS.escape(chart.id)}"]`);
   if (!card) return;
@@ -403,13 +392,7 @@ const renderChart = (root, chart) => {
   const values = points.map(point => Number(point[1])).filter(Number.isFinite);
   const minTime = Math.min(...times);
   const maxTime = Math.max(...times);
-  let minValue = Math.min(...values);
-  let maxValue = Math.max(...values);
-  if (minValue === maxValue) {
-    const padding = Math.max(Math.abs(minValue) * 0.08, 1);
-    minValue -= padding;
-    maxValue += padding;
-  }
+  const [minValue, maxValue] = chartDomain(values, chart.min, chart.max);
   const x = value => inset + ((value - minTime) / Math.max(maxTime - minTime, 1)) * (width - inset * 2);
   const y = value => height - inset - ((value - minValue) / (maxValue - minValue)) * (height - inset * 2);
   const colors = chartColors(root);

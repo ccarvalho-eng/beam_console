@@ -11,7 +11,13 @@ defmodule BeamConsoleWeb.Console.ChartPresenter do
           unit: String.t(),
           point_limit: pos_integer()
         }
-  @type chart_definition :: %{id: String.t(), title: String.t(), unit: String.t()}
+  @type chart_definition :: %{
+          required(:id) => String.t(),
+          required(:title) => String.t(),
+          required(:unit) => String.t(),
+          optional(:min) => number(),
+          optional(:max) => number()
+        }
 
   @doc "Builds one chronologically ordered, gap-aware, downsampled chart series."
   @spec series([Frame.t()], series_definition(), getter()) :: map()

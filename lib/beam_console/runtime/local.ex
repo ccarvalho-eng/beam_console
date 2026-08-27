@@ -467,6 +467,8 @@ defmodule BeamConsole.Runtime.Local do
       application_count: map_size(applications),
       ets_count: length(:ets.all()),
       node_count: map_size(nodes),
+      atom_count: :erlang.system_info(:atom_count),
+      atom_limit: :erlang.system_info(:atom_limit),
       memory_total: memory[:total],
       memory_processes: memory[:processes],
       memory_system: memory[:system],

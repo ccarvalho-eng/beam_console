@@ -5,7 +5,9 @@ import test from "node:test";
 import {
   anchoredNodeOffset,
   chartAriaLabel,
+  chartDomain,
   chartHeadline,
+  formatChartValue,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
@@ -95,6 +97,15 @@ test("chart headline distinguishes a value from multiple series", () => {
     ),
     "2 series"
   );
+});
+
+test("chart values preserve percentage units", () => {
+  assert.equal(formatChartValue(11.77, "%"), "11.8%");
+});
+
+test("chart domains honor meaningful fixed bounds", () => {
+  assert.deepEqual(chartDomain([11.77, 11.78], 0, 100), [0, 100]);
+  assert.deepEqual(chartDomain([11, 13], undefined, undefined), [11, 13]);
 });
 
 test("collector epochs reset graph and chart revision guards", () => {
@@ -197,6 +208,18 @@ test("mobile layout preserves the tab panel scroll boundary", async () => {
   assert.match(
     stylesheet,
     /@media \(max-width: 760px\)[\s\S]*?\.beam-console-graph-stage\s*\{[\s\S]*?grid-template-rows:\s*auto 412px[\s\S]*?\.beam-console-graph-toolbar > div:first-child\s*\{[\s\S]*?display:\s*none/
+  );
+});
+
+test("runtime summary adapts before cards become cramped", async () => {
+  const stylesheet = await readFile(
+    new URL("../../priv/static/beam_console.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    stylesheet,
+    /\.beam-console-runtime-summary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(150px, 1fr\)\)/
   );
 });
 

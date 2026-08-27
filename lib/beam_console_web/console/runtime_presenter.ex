@@ -8,7 +8,16 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
 
   @scalar_charts [
     %{id: "runtime-run-queue", title: "Run queue", field: :run_queue, unit: "items"},
-    %{id: "runtime-scan", title: "Collector scan", field: :collector_scan_ms, unit: "ms"}
+    %{id: "runtime-scan", title: "Collector scan", field: :collector_scan_ms, unit: "ms"},
+    %{
+      id: "runtime-atoms",
+      title: "Atom table utilization",
+      label: "Atoms",
+      field: :atom_utilization,
+      unit: "%",
+      min: 0,
+      max: 100
+    }
   ]
 
   @doc "Builds the Runtime view without storing historical point arrays in LiveView assigns."
@@ -29,12 +38,18 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
       supervisor_count: 0,
       ets_count: 0,
       run_queue: nil,
+      atom_count: nil,
+      atom_limit: nil,
+      atom_utilization: nil,
       collector_partial?: false,
       omitted: query.omitted + query.dropped
     }
   end
 
   defp summary(%Sample{} = sample, query) do
+    atom_count = Map.get(sample, :atom_count)
+    atom_limit = Map.get(sample, :atom_limit)
+
     sample
     |> Map.take([
       :process_count,
@@ -42,12 +57,17 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
       :application_count,
       :ets_count,
       :node_count,
+      :atom_count,
+      :atom_limit,
       :memory_total,
       :run_queue,
       :scheduler_count,
       :collector_scan_ms,
       :collector_partial?
     ])
+    |> Map.put(:atom_count, atom_count)
+    |> Map.put(:atom_limit, atom_limit)
+    |> Map.put(:atom_utilization, atom_utilization(atom_count, atom_limit))
     |> Map.put(:omitted, query.omitted + query.dropped)
   end
 
@@ -59,7 +79,8 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
       memory_chart(frames, revision, point_limit),
       Enum.at(scalar_charts, 0),
       count_chart(frames, revision, point_limit),
-      Enum.at(scalar_charts, 1)
+      Enum.at(scalar_charts, 1),
+      Enum.at(scalar_charts, 2)
     ]
   end
 
@@ -104,7 +125,7 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
   defp scalar_chart(frames, revision, point_limit, definition) do
     series_definition = %{
       key: definition.field,
-      label: definition.title,
+      label: Map.get(definition, :label, definition.title),
       unit: definition.unit,
       point_limit: point_limit
     }
@@ -112,8 +133,12 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
     series =
       ChartPresenter.series(frames, series_definition, &runtime_value(&1, definition.field))
 
-    chart_definition = Map.take(definition, [:id, :title, :unit])
+    chart_definition = Map.take(definition, [:id, :title, :unit, :min, :max])
     ChartPresenter.chart(chart_definition, [series], revision)
+  end
+
+  defp runtime_value(%Frame{runtime: %Sample{} = sample}, :atom_utilization) do
+    atom_utilization(Map.get(sample, :atom_count), Map.get(sample, :atom_limit))
   end
 
   defp runtime_value(%Frame{runtime: %Sample{} = sample}, field) do
@@ -121,6 +146,15 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
   end
 
   defp runtime_value(_frame, _field) do
+    nil
+  end
+
+  defp atom_utilization(count, limit)
+       when is_integer(count) and is_integer(limit) and limit > 0 do
+    count / limit * 100
+  end
+
+  defp atom_utilization(_count, _limit) do
     nil
   end
 end

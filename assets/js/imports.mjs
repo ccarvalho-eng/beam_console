@@ -3,7 +3,9 @@ import { LiveSocket } from "../live-view/__LIVE_VIEW_DIGEST__";
 import cytoscape from "../cytoscape/__CYTOSCAPE_DIGEST__";
 import {
   chartAriaLabel,
+  chartDomain,
   chartHeadline,
+  formatChartValue,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
