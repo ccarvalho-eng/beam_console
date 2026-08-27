@@ -168,11 +168,11 @@ Files:
 
 Tasks:
 
-- [ ] Correlate only the same stable supervisor PID and child-spec slot within one complete sequence segment.
-- [ ] Emit direct termination and strong/medium replacement evidence with machine-readable reasons for any certainty cap.
-- [ ] Represent restarting transitions without inventing intermediate PIDs.
-- [ ] Refuse high certainty for partial/truncated samples, sequence gaps, ambiguous targets, module/name-only matches, and all dynamic slots.
-- [ ] Table-test every research scenario, including exact correlation-window boundaries.
+- [x] Correlate only the same stable supervisor PID and child-spec slot within one complete sequence segment. — Pure `Lifecycle.Correlator` never uses labels or module similarity.
+- [x] Emit direct termination and strong/medium replacement evidence with machine-readable reasons for any certainty cap. — Retained details include sequences, slot, elapsed time, coverage, transition, and cap reason.
+- [x] Represent restarting transitions without inventing intermediate PIDs. — `:restarting` and `:undefined` are private pending evidence only.
+- [x] Refuse high certainty for partial/truncated samples, sequence gaps, ambiguous targets, module/name-only matches, and all dynamic slots. — Ambiguity is terminal for the pending window rather than resolved by guessing.
+- [x] Table-test every research scenario, including exact correlation-window boundaries. — The boundary is inclusive; 79 tests and 5 doctests pass in the full suite.
 - [ ] Add deterministic doctests for fully specified evidence values.
 
 Done when the core API can report bounded direct exits and honest stable-slot replacements without Phoenix running.
