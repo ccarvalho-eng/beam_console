@@ -2,6 +2,8 @@ defmodule BeamConsoleTest do
   use ExUnit.Case
 
   doctest BeamConsole.EntityId
+  doctest BeamConsole.Recorder.History
+  doctest BeamConsole.ReasonSummary
 
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
