@@ -12,6 +12,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
   use GenServer
 
   alias BeamConsole.EntityId
+  alias BeamConsole.Lifecycle.Correlator
   alias BeamConsole.Lifecycle.Event
   alias BeamConsole.Lifecycle.Observation
   alias BeamConsole.Lifecycle.PendingExit
@@ -154,6 +155,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
             source_epoch: source_epoch || state.source_epoch
         }
 
+        state = correlate_pending_exits(state, frame, observations)
         {:noreply, reconcile(state, frame, observations)}
     end
   end
@@ -219,6 +221,37 @@ defmodule BeamConsole.Lifecycle.Recorder do
 
   defp source_changed?(source_epoch, next_source_epoch) do
     source_epoch != next_source_epoch
+  end
+
+  defp correlate_pending_exits(state, frame, observations) do
+    context = [
+      sequence: frame.sequence,
+      segment: state.history.segment,
+      monotonic_ms: frame.monotonic_ms,
+      sampled_at_ms: frame.sampled_at_ms,
+      coverage: frame.coverage,
+      pending_slot_ms: state.config.pending_slot_ms
+    ]
+
+    {pending_exits, events} =
+      state.pending_exits
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.reduce({%{}, []}, fn {slot_id, pending}, {pending_result, event_result} ->
+        case Correlator.correlate(pending, observations, context) do
+          {:replacement, event} ->
+            {pending_result, [event | event_result]}
+
+          {:pending, next_pending} ->
+            {Map.put(pending_result, slot_id, next_pending), event_result}
+
+          {:discard, _reason} ->
+            {pending_result, event_result}
+        end
+      end)
+
+    events = Enum.reverse(events)
+    history = History.append_events(state.history, events, now_ms: frame.monotonic_ms)
+    %{state | pending_exits: pending_exits, history: history}
   end
 
   defp start_recording(state) do
@@ -457,6 +490,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
       supervisor_pid: watch.supervisor_pid,
       entity_id: watch.entity_id,
       sequence: watch.last_sequence,
+      segment: state.history.segment,
       monotonic_ms: monotonic_ms,
       coverage: watch.coverage
     }
@@ -465,10 +499,16 @@ defmodule BeamConsole.Lifecycle.Recorder do
       Map.has_key?(state.pending_exits, watch.slot_id) or
         map_size(state.pending_exits) < state.config.watch_limit
 
-    if can_store? do
-      %{state | pending_exits: Map.put(state.pending_exits, watch.slot_id, pending)}
-    else
-      state
+    case Map.get(state.pending_exits, watch.slot_id) do
+      %PendingExit{} = existing ->
+        ambiguous = %{existing | ambiguity_observed?: true}
+        %{state | pending_exits: Map.put(state.pending_exits, watch.slot_id, ambiguous)}
+
+      nil when can_store? ->
+        %{state | pending_exits: Map.put(state.pending_exits, watch.slot_id, pending)}
+
+      nil ->
+        state
     end
   end
 

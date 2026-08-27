@@ -12,6 +12,7 @@ defmodule BeamConsole.Lifecycle.PendingExit do
     :supervisor_pid,
     :entity_id,
     :sequence,
+    :segment,
     :monotonic_ms,
     :coverage
   ]
@@ -19,15 +20,23 @@ defmodule BeamConsole.Lifecycle.PendingExit do
             supervisor_pid: nil,
             entity_id: "",
             sequence: 0,
+            segment: 0,
             monotonic_ms: 0,
-            coverage: :complete
+            coverage: :complete,
+            transition_observed?: false,
+            transition_state: nil,
+            ambiguity_observed?: false
 
   @type t :: %__MODULE__{
           slot_id: String.t(),
           supervisor_pid: pid(),
           entity_id: String.t(),
           sequence: non_neg_integer(),
+          segment: non_neg_integer(),
           monotonic_ms: integer(),
-          coverage: :complete | :partial | :truncated
+          coverage: :complete | :partial | :truncated,
+          transition_observed?: boolean(),
+          transition_state: :restarting | :undefined | nil,
+          ambiguity_observed?: boolean()
         }
 end

@@ -31,7 +31,8 @@ defmodule BeamConsole.Lifecycle.Event do
             application: nil,
             evidence: :snapshot_diff,
             certainty: :sampled,
-            reason: nil
+            reason: nil,
+            details: %{}
 
   @type kind ::
           :recording_started
@@ -46,7 +47,8 @@ defmodule BeamConsole.Lifecycle.Event do
           | :mailbox_growth
           | :connection_lost
   @type evidence :: :monitor | :slot_reconciliation | :snapshot_diff | :recorder | :connection
-  @type certainty :: :direct | :strong | :sampled | :missed | :partial | :ambiguous
+  @type certainty :: :direct | :strong | :medium | :sampled | :missed | :partial | :ambiguous
+  @type detail_value :: String.t() | atom() | integer() | boolean() | nil
   @type t :: %__MODULE__{
           id: String.t(),
           kind: kind(),
@@ -61,6 +63,7 @@ defmodule BeamConsole.Lifecycle.Event do
           application: String.t() | nil,
           evidence: evidence(),
           certainty: certainty(),
-          reason: ReasonSummary.t() | nil
+          reason: ReasonSummary.t() | nil,
+          details: %{optional(atom()) => detail_value()}
         }
 end

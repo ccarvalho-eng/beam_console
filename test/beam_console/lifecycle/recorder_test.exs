@@ -161,6 +161,41 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     assert Recorder.status(recorder).pending_correlations == 0
   end
 
+  test "emits a replacement event when the same stable slot receives a new PID" do
+    recorder = start_recorder()
+    original = waiting_process()
+    replacement = waiting_process()
+
+    Recorder.activate(recorder)
+
+    Recorder.observe(
+      frame(1, 1_000),
+      [observation(original, 1, slot_id: "stable-worker")],
+      [],
+      recorder
+    )
+
+    Process.exit(original, :kill)
+    assert eventually(fn -> Recorder.status(recorder).pending_correlations == 1 end)
+
+    Recorder.observe(
+      frame(2, 2_000),
+      [observation(replacement, 2, slot_id: "stable-worker")],
+      [],
+      recorder
+    )
+
+    result = Recorder.events([now_ms: 2_000], recorder)
+    event = Enum.find(result.items, &(&1.kind == :replacement_observed))
+
+    assert event.certainty == :strong
+    assert event.label == "Replacement observed"
+    assert Recorder.status(recorder).pending_correlations == 0
+
+    Recorder.deactivate(recorder)
+    Process.exit(replacement, :kill)
+  end
+
   test "starts a new segment when lazy recording resumes with a reset sequence" do
     recorder = start_recorder()
 
@@ -225,11 +260,20 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
   end
 
   defp waiting_process do
-    spawn(fn ->
-      receive do
-        :stop -> :ok
+    pid =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :kill)
       end
     end)
+
+    pid
   end
 
   defp frame(sequence, monotonic_ms, coverage \\ :complete) do
@@ -241,8 +285,8 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     }
   end
 
-  defp observation(pid, sequence) do
-    %Observation{
+  defp observation(pid, sequence, overrides \\ []) do
+    defaults = [
       slot_id: "slot-#{inspect(pid)}",
       slot_kind: :stable,
       supervisor_pid: self(),
@@ -252,7 +296,11 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
       modules: [__MODULE__],
       sequence: sequence,
       coverage: :complete
-    }
+    ]
+
+    defaults
+    |> Keyword.merge(overrides)
+    |> then(&struct!(Observation, &1))
   end
 
   defp eventually(fun, attempts \\ 100)
