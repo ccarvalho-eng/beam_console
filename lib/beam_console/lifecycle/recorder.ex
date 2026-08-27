@@ -23,18 +23,9 @@ defmodule BeamConsole.Lifecycle.Recorder do
   alias BeamConsole.Recorder.Frame
   alias BeamConsole.Recorder.History
   alias BeamConsole.Recorder.Query
+  alias BeamConsole.Recorder.Status
 
-  @type status :: %{
-          active?: boolean(),
-          mode: Config.mode(),
-          recording_started_at_ms: integer() | nil,
-          watched: non_neg_integer(),
-          eligible: non_neg_integer(),
-          omitted: non_neg_integer(),
-          deferred: non_neg_integer(),
-          pending_correlations: non_neg_integer(),
-          history: map()
-        }
+  @type status :: Status.t()
 
   @spec start_link(keyword()) :: GenServer.on_start()
   @doc "Starts a lifecycle recorder with optional name, limits, clocks, and collector overrides."
@@ -53,6 +44,18 @@ defmodule BeamConsole.Lifecycle.Recorder do
   @doc "Deactivates lazy recording and removes its process monitors."
   def deactivate(server \\ __MODULE__) do
     GenServer.cast(server, :deactivate)
+  end
+
+  @spec pause(GenServer.server()) :: Status.t()
+  @doc "Pauses recording until an operator explicitly resumes it."
+  def pause(server \\ __MODULE__) do
+    GenServer.call(server, :pause)
+  end
+
+  @spec resume(GenServer.server()) :: Status.t()
+  @doc "Resumes recording when subscriber or always-on demand is present."
+  def resume(server \\ __MODULE__) do
+    GenServer.call(server, :resume)
   end
 
   @spec observe(Frame.t(), [Observation.t()], keyword(), GenServer.server()) :: :ok
@@ -74,6 +77,12 @@ defmodule BeamConsole.Lifecycle.Recorder do
     GenServer.call(server, {:events, options})
   end
 
+  @spec samples(keyword(), GenServer.server()) :: Query.t()
+  @doc "Returns newest aggregate recorder frames under the configured history cap."
+  def samples(options \\ [], server \\ __MODULE__) do
+    GenServer.call(server, {:samples, options})
+  end
+
   @impl true
   def init(options) do
     config = recorder_config(Keyword.get(options, :config))
@@ -85,7 +94,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
       history: History.new(config),
       collector: Keyword.get(options, :collector, BeamConsole.Collector),
       monotonic_clock: monotonic_clock,
-      system_clock: system_clock
+      system_clock: system_clock,
+      demanded?: config.mode == :always
     }
 
     {:ok, if(config.mode == :always, do: start_recording(state), else: state)}
@@ -93,7 +103,19 @@ defmodule BeamConsole.Lifecycle.Recorder do
 
   @impl true
   def handle_call(:status, _from, state) do
-    state = flush_pending_events(state)
+    state = state |> flush_pending_events() |> prune_history()
+    {:reply, status_from_state(state), state}
+  end
+
+  def handle_call(:pause, _from, state) do
+    state = state |> flush_pending_events() |> Map.put(:paused?, true) |> stop_recording()
+    {:reply, status_from_state(state), state}
+  end
+
+  def handle_call(:resume, _from, state) do
+    state = %{state | paused?: false}
+    state = if state.demanded?, do: start_recording(state), else: state
+    maybe_request_refresh(state)
     {:reply, status_from_state(state), state}
   end
 
@@ -103,21 +125,31 @@ defmodule BeamConsole.Lifecycle.Recorder do
     {:reply, result, %{state | history: history}}
   end
 
+  def handle_call({:samples, options}, _from, state) do
+    state = flush_pending_events(state)
+    {history, result} = Query.frames(state.history, options)
+    {:reply, result, %{state | history: history}}
+  end
+
   @impl true
+  def handle_cast(:activate, %State{paused?: true} = state) do
+    {:noreply, %{state | demanded?: true}}
+  end
+
   def handle_cast(:activate, %State{active?: true} = state) do
-    {:noreply, state}
+    {:noreply, %{state | demanded?: true}}
   end
 
   def handle_cast(:activate, state) do
-    {:noreply, start_recording(state)}
+    {:noreply, state |> Map.put(:demanded?, true) |> start_recording()}
   end
 
   def handle_cast(:deactivate, %State{config: %Config{mode: :always}} = state) do
-    {:noreply, state}
+    {:noreply, %{state | demanded?: true}}
   end
 
   def handle_cast(:deactivate, state) do
-    {:noreply, stop_recording(state)}
+    {:noreply, state |> Map.put(:demanded?, false) |> stop_recording()}
   end
 
   def handle_cast({:observe, _frame, _observations, _options}, %State{active?: false} = state) do
@@ -255,14 +287,18 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   defp start_recording(state) do
-    %{
+    if state.active? or state.paused? do
       state
-      | active?: true,
-        recording_started_at_ms: state.system_clock.(),
-        recording_started_monotonic_ms: state.monotonic_clock.(),
-        start_event_pending?: true,
-        reset_pending?: not is_nil(state.history.last_sequence)
-    }
+    else
+      %{
+        state
+        | active?: true,
+          recording_started_at_ms: state.system_clock.(),
+          recording_started_monotonic_ms: state.monotonic_clock.(),
+          start_event_pending?: true,
+          reset_pending?: not is_nil(state.history.last_sequence)
+      }
+    end
   end
 
   defp stop_recording(%State{active?: false} = state) do
@@ -556,9 +592,26 @@ defmodule BeamConsole.Lifecycle.Recorder do
     %{state | history: history, pending_events: [], flush_scheduled?: false}
   end
 
+  defp prune_history(state) do
+    history = History.prune(state.history, state.monotonic_clock.())
+    %{state | history: history}
+  end
+
+  defp maybe_request_refresh(%State{active?: true, collector: collector})
+       when not is_nil(collector) do
+    BeamConsole.Collector.refresh(collector)
+  end
+
+  defp maybe_request_refresh(_state) do
+    :ok
+  end
+
   defp status_from_state(state) do
-    %{
+    %Status{
+      activity: activity(state),
       active?: state.active?,
+      demanded?: state.demanded?,
+      paused?: state.paused?,
       mode: state.config.mode,
       recording_started_at_ms: state.recording_started_at_ms,
       watched: map_size(state.watches_by_pid),
@@ -568,6 +621,18 @@ defmodule BeamConsole.Lifecycle.Recorder do
       pending_correlations: map_size(state.pending_exits),
       history: History.stats(state.history)
     }
+  end
+
+  defp activity(%State{paused?: true}) do
+    :paused
+  end
+
+  defp activity(%State{active?: true}) do
+    :recording
+  end
+
+  defp activity(_state) do
+    :inactive
   end
 
   defp monotonic_ms do

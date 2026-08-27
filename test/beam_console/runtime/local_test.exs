@@ -9,6 +9,11 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.sequence == 7
     assert snapshot.nodes[snapshot.local_node_id].inspectable?
     assert snapshot.coverage.total_pids >= snapshot.coverage.inspected_pids
+    assert snapshot.runtime_sample.process_count == map_size(snapshot.processes)
+    assert snapshot.runtime_sample.application_count == map_size(snapshot.applications)
+    assert snapshot.runtime_sample.ets_count >= 0
+    assert snapshot.runtime_sample.memory_total > 0
+    assert snapshot.runtime_sample.scheduler_count > 0
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.pid == self() end)
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.label == "nil" end)
   end

@@ -15,6 +15,7 @@ defmodule BeamConsole.Runtime.Local do
   alias BeamConsole.NodeInfo
   alias BeamConsole.ProcessDetail
   alias BeamConsole.ProcessInfo
+  alias BeamConsole.Runtime.Sample, as: RuntimeSample
   alias BeamConsole.Runtime.Supervision
   alias BeamConsole.Snapshot
 
@@ -71,15 +72,30 @@ defmodule BeamConsole.Runtime.Local do
 
     nodes = collect_nodes(local_node)
 
+    sampled_at = DateTime.utc_now()
+
+    runtime_sample =
+      runtime_sample(
+        sequence,
+        sampled_at,
+        completed_at,
+        processes,
+        applications,
+        nodes,
+        edges,
+        coverage
+      )
+
     snapshot = %Snapshot{
       sequence: sequence,
-      sampled_at: DateTime.utc_now(),
+      sampled_at: sampled_at,
       local_node_id: local_node_id,
       nodes: nodes,
       applications: applications,
       processes: processes,
       edges: edges,
       lifecycle_observations: lifecycle_observations,
+      runtime_sample: runtime_sample,
       coverage: coverage,
       index: build_index(processes, applications, nodes)
     }
@@ -194,7 +210,9 @@ defmodule BeamConsole.Runtime.Local do
         node_id: local_node_id,
         description: safe_string(description),
         version: safe_string(version),
-        root_supervisor_id: root && EntityId.build(:process, {local_node, root})
+        root_supervisor_id: root && EntityId.build(:process, {local_node, root}),
+        required_applications: required_applications(name),
+        origin: application_origin(name)
       }
 
       roots = if root, do: [{name, root} | roots], else: roots
@@ -248,6 +266,30 @@ defmodule BeamConsole.Runtime.Local do
     case :application.get_supervisor(application) do
       {:ok, supervisor} -> supervisor
       :undefined -> nil
+    end
+  end
+
+  defp required_applications(application) do
+    case Application.spec(application, :applications) do
+      applications when is_list(applications) -> Enum.filter(applications, &is_atom/1)
+      _other -> []
+    end
+  end
+
+  defp application_origin(application) do
+    with root when is_list(root) <- :code.root_dir(),
+         directory when is_list(directory) <- :code.lib_dir(application) do
+      otp_library = root |> List.to_string() |> Path.join("lib") |> Path.expand()
+      application_directory = directory |> List.to_string() |> Path.expand()
+
+      if application_directory == otp_library or
+           String.starts_with?(application_directory, otp_library <> "/") do
+        :otp
+      else
+        :external
+      end
+    else
+      _other -> :unknown
     end
   end
 
@@ -316,6 +358,62 @@ defmodule BeamConsole.Runtime.Local do
 
   defp normalize_relations(_relations, _limit) do
     []
+  end
+
+  defp runtime_sample(
+         sequence,
+         sampled_at,
+         monotonic_ms,
+         processes,
+         applications,
+         nodes,
+         edges,
+         coverage
+       ) do
+    memory = :erlang.memory()
+
+    %RuntimeSample{
+      sequence: sequence,
+      sampled_at_ms: DateTime.to_unix(sampled_at, :millisecond),
+      monotonic_ms: monotonic_ms,
+      process_count: map_size(processes),
+      supervisor_count: supervisor_count(applications, edges),
+      application_count: map_size(applications),
+      ets_count: length(:ets.all()),
+      node_count: map_size(nodes),
+      memory_total: memory[:total],
+      memory_processes: memory[:processes],
+      memory_system: memory[:system],
+      memory_atom: memory[:atom],
+      memory_binary: memory[:binary],
+      memory_code: memory[:code],
+      memory_ets: memory[:ets],
+      scheduler_count: :erlang.system_info(:schedulers_online),
+      run_queue: :erlang.statistics(:run_queue),
+      collector_scan_ms: coverage.duration_ms,
+      collector_partial?:
+        coverage.process_limit_reached? or coverage.traversal_limit_reached? or
+          coverage.partial_supervisors > 0
+    }
+  end
+
+  defp supervisor_count(applications, edges) do
+    child_supervisors =
+      edges
+      |> Map.values()
+      |> Enum.filter(&(&1.child_type == :supervisor and is_binary(&1.child_id)))
+      |> Enum.map(& &1.child_id)
+
+    root_supervisors =
+      applications
+      |> Map.values()
+      |> Enum.map(& &1.root_supervisor_id)
+      |> Enum.reject(&is_nil/1)
+
+    child_supervisors
+    |> Kernel.++(root_supervisors)
+    |> MapSet.new()
+    |> MapSet.size()
   end
 
   defp relation_label(pid) when is_pid(pid) do

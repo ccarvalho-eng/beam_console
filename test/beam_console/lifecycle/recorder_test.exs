@@ -77,6 +77,45 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     Process.exit(worker, :kill)
   end
 
+  test "operator pause survives automatic activation until explicitly resumed" do
+    recorder = start_recorder()
+    first = waiting_process()
+    second = waiting_process()
+
+    Recorder.activate(recorder)
+    Recorder.observe(frame(1, 1_000), [observation(first, 1)], [], recorder)
+    assert Recorder.status(recorder).watched == 1
+
+    assert %BeamConsole.Recorder.Status{activity: :paused, demanded?: true} =
+             Recorder.pause(recorder)
+
+    Recorder.activate(recorder)
+    Recorder.observe(frame(2, 2_000), [observation(second, 2)], [], recorder)
+
+    paused = Recorder.status(recorder)
+    assert paused.activity == :paused
+    refute paused.active?
+    assert paused.watched == 0
+
+    assert %BeamConsole.Recorder.Status{activity: :recording, active?: true} =
+             Recorder.resume(recorder)
+
+    Recorder.observe(frame(2, 2_000), [observation(second, 2)], [], recorder)
+    assert Recorder.status(recorder).watched == 1
+
+    Process.exit(first, :kill)
+    Process.exit(second, :kill)
+  end
+
+  test "operator pause overrides always mode" do
+    recorder = start_recorder(mode: :always)
+
+    assert Recorder.pause(recorder).activity == :paused
+    Recorder.deactivate(recorder)
+    assert Recorder.status(recorder).activity == :paused
+    assert Recorder.resume(recorder).activity == :recording
+  end
+
   test "caps watch changes per frame and reports omitted and deferred coverage" do
     recorder = start_recorder(watch_limit: 2, reconciliation_limit: 1)
     workers = Enum.map(1..3, fn _index -> waiting_process() end)

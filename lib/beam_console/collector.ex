@@ -10,9 +10,10 @@ defmodule BeamConsole.Collector do
 
   use GenServer
 
-  alias BeamConsole.Config
+  alias BeamConsole.Activity
   alias BeamConsole.Collector.Subscriber
   alias BeamConsole.Collector.Status
+  alias BeamConsole.Config
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
   alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
@@ -243,7 +244,9 @@ defmodule BeamConsole.Collector do
     cancel_timer(state.scan_timeout_ref)
 
     snapshot = %{snapshot | stale?: false}
-    frame = Frame.from_snapshot(snapshot, System.monotonic_time(:millisecond))
+    monotonic_ms = System.monotonic_time(:millisecond)
+    activity = Activity.sample(state.snapshot, snapshot, monotonic_ms)
+    frame = Frame.from_snapshot(snapshot, monotonic_ms, activity)
 
     {snapshot, observations} =
       detach_lifecycle_observations(snapshot, state.task_supervisor)
@@ -345,7 +348,8 @@ defmodule BeamConsole.Collector do
       scan: nil,
       scan_timeout_ref: nil,
       last_error: reason,
-      last_failure_at: DateTime.utc_now()
+      last_failure_at: DateTime.utc_now(),
+      recorder_gap?: true
     })
     |> notify_subscribers()
     |> schedule_after_scan()
@@ -404,20 +408,26 @@ defmodule BeamConsole.Collector do
       {%Subscriber{} = delivery, subscribers} ->
         Process.demonitor(delivery.monitor_ref, [:flush])
 
-        state = %{state | subscribers: subscribers}
-
-        if map_size(subscribers) == 0 and not state.always_record? do
-          cancel_timer(state.tick_ref)
-          deactivate_lifecycle_recorder(state.lifecycle_recorder)
-          %{state | tick_ref: nil, pending_refresh?: false}
-        else
-          if map_size(subscribers) == 0 do
-            deactivate_lifecycle_recorder(state.lifecycle_recorder)
-          end
-
-          state
-        end
+        state
+        |> Map.put(:subscribers, subscribers)
+        |> after_subscriber_removed()
     end
+  end
+
+  defp after_subscriber_removed(%{subscribers: subscribers} = state)
+       when map_size(subscribers) > 0 do
+    state
+  end
+
+  defp after_subscriber_removed(%{always_record?: false} = state) do
+    cancel_timer(state.tick_ref)
+    deactivate_lifecycle_recorder(state.lifecycle_recorder)
+    %{state | tick_ref: nil, pending_refresh?: false}
+  end
+
+  defp after_subscriber_removed(state) do
+    deactivate_lifecycle_recorder(state.lifecycle_recorder)
+    state
   end
 
   defp notify_subscribers(state) do

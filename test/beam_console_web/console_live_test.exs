@@ -38,6 +38,9 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
            )
 
     assert has_element?(view, "#beam-console-search")
+    assert has_element?(view, "#beam-console-tab-process_map[aria-current='page']")
+    assert has_element?(view, "#beam-console-tab-lifecycle")
+    assert has_element?(view, "#beam-console-recorder-control")
     assert has_element?(view, "#beam-console-refresh[aria-label='Refresh runtime sample'] svg")
 
     assert has_element?(
@@ -80,5 +83,47 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(build_conn(), "/beam?entity=not-a-runtime-id")
 
     assert has_element?(view, "#beam-console-detail-empty")
+  end
+
+  test "renders URL-backed lifecycle, activity, and runtime tabs" do
+    {:ok, lifecycle, _html} = live(build_conn(), "/beam/lifecycle")
+    assert has_element?(lifecycle, "#beam-console-tab-lifecycle[aria-current='page']")
+    assert has_element?(lifecycle, "#beam-console-lifecycle-list")
+
+    {:ok, activity, _html} = live(build_conn(), "/beam/activity")
+    assert has_element?(activity, "#beam-console-tab-activity[aria-current='page']")
+
+    {:ok, runtime, _html} = live(build_conn(), "/beam/runtime")
+    assert has_element?(runtime, "#beam-console-tab-runtime[aria-current='page']")
+  end
+
+  test "pauses and resumes recording from the header" do
+    {:ok, view, _html} = live(build_conn(), "/beam/lifecycle")
+
+    assert has_element?(view, "#beam-console-recorder-control[aria-label='Pause recording']")
+    render_click(view, "toggle_recording", %{})
+    assert has_element?(view, "#beam-console-recorder-control[aria-label='Resume recording']")
+    assert has_element?(view, ".beam-console-recording-badge.is-paused")
+
+    render_click(view, "toggle_recording", %{})
+    assert has_element?(view, "#beam-console-recorder-control[aria-label='Pause recording']")
+  end
+
+  test "does not retain full runtime snapshots in LiveView assigns" do
+    {:ok, view, _html} = live(build_conn(), "/beam")
+    %{socket: %{assigns: assigns}} = :sys.get_state(view.pid)
+
+    refute Map.has_key?(assigns, :snapshot)
+    refute Enum.any?(Map.values(assigns), &match?(%BeamConsole.Snapshot{}, &1))
+  end
+
+  test "renders categorized application folders and application details", %{snapshot: snapshot} do
+    application = snapshot.applications |> Map.values() |> List.first()
+    {:ok, view, _html} = live(build_conn(), "/beam?entity=#{application.id}")
+
+    assert has_element?(view, "[id$='application-category-host']")
+    assert has_element?(view, "[id$='application-category-dependencies']")
+    assert has_element?(view, "[id$='application-category-otp']")
+    assert has_element?(view, "#beam-console-application-detail")
   end
 end

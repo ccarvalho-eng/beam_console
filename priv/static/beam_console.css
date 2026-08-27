@@ -22,6 +22,11 @@
   --bc-accent-soft: #f5f3ff;
   --bc-accent-border: #c4b5fd;
   --bc-success: #16a34a;
+  --bc-chart-two: #0891b2;
+  --bc-chart-three: #ca8a04;
+  --bc-chart-four: #dc2626;
+  --bc-chart-five: #16a34a;
+  --bc-panel-header-height: 60px;
   min-height: 100vh;
   padding: 20px;
   background: var(--bc-bg);
@@ -50,6 +55,10 @@
   --bc-accent-soft: #2e2442;
   --bc-accent-border: #6d5a96;
   --bc-success: #4ade80;
+  --bc-chart-two: #22d3ee;
+  --bc-chart-three: #facc15;
+  --bc-chart-four: #f87171;
+  --bc-chart-five: #4ade80;
   color-scheme: dark;
 }
 
@@ -141,6 +150,37 @@
   min-width: 0;
 }
 
+.beam-console-tabs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--bc-border);
+  border-radius: 7px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-tab {
+  padding: 6px 9px;
+  border-radius: 5px;
+  color: var(--bc-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.beam-console-tab:hover {
+  color: var(--bc-text);
+}
+
+.beam-console-tab.is-active {
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bc-text), transparent 90%);
+}
+
 .beam-console-status {
   gap: 7px;
   margin-right: 4px;
@@ -163,6 +203,11 @@
   background: var(--bc-subtle);
   box-shadow: none;
   animation: beam-console-pulse 1.2s ease-in-out infinite;
+}
+
+.beam-console-status.is-stale::before {
+  background: #d97706;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #d97706, transparent 86%);
 }
 
 .beam-console-search-form {
@@ -242,6 +287,11 @@
 
 .beam-console-icon-button.is-pending svg {
   animation: beam-console-spin 800ms linear infinite;
+}
+
+.beam-console-icon-button.is-recording {
+  border-color: color-mix(in srgb, var(--bc-success), transparent 62%);
+  color: var(--bc-success);
 }
 
 .beam-console-theme-switcher {
@@ -332,7 +382,7 @@
 }
 
 .beam-console-panel-heading {
-  min-height: 60px;
+  min-height: var(--bc-panel-header-height);
   padding: 13px 15px 11px;
   border-bottom: 1px solid var(--bc-border);
   background: color-mix(in srgb, var(--bc-surface-muted), var(--bc-surface) 38%);
@@ -496,7 +546,7 @@
   position: relative;
   display: grid;
   min-height: 0;
-  grid-template-rows: 58px minmax(380px, 1fr);
+  grid-template-rows: var(--bc-panel-header-height) minmax(380px, 1fr);
   overflow: hidden;
   border-bottom: 1px solid var(--bc-border);
 }
@@ -579,7 +629,7 @@
 
 .beam-console-process-columns {
   position: sticky;
-  top: 60px;
+  top: var(--bc-panel-header-height);
   z-index: 2;
   min-height: 28px;
   padding: 0 15px;
@@ -682,6 +732,158 @@
   color: var(--bc-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 10px;
+}
+
+.beam-console-detail-copy {
+  margin: 15px 0;
+  color: var(--bc-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.beam-console-tab-main {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.beam-console-tab-stage {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: var(--bc-panel-header-height) auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.beam-console-lifecycle-controls {
+  min-height: max-content;
+}
+
+.beam-console-lifecycle-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: var(--bc-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.beam-console-recorder-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--bc-border);
+  background: var(--bc-border);
+}
+
+.beam-console-recorder-summary div {
+  padding: 12px 15px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-recorder-summary span,
+.beam-console-recorder-summary strong {
+  display: block;
+}
+
+.beam-console-recorder-summary span {
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.beam-console-recorder-summary strong {
+  margin-top: 4px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.beam-console-recording-badge,
+.beam-console-event-kind {
+  padding: 4px 7px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 999px;
+  color: var(--bc-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.beam-console-recording-badge.is-recording {
+  border-color: color-mix(in srgb, var(--bc-success), transparent 65%);
+  background: color-mix(in srgb, var(--bc-success), transparent 93%);
+  color: var(--bc-success);
+}
+
+.beam-console-recording-badge.is-paused {
+  border-color: color-mix(in srgb, #d97706, transparent 65%);
+  background: color-mix(in srgb, #d97706, transparent 93%);
+  color: #b45309;
+}
+
+.beam-console-lifecycle-list {
+  min-height: min-content;
+}
+
+.beam-console-lifecycle-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 132px minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border: 0;
+  border-bottom: 1px solid var(--bc-border);
+  background: transparent;
+  color: var(--bc-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.beam-console-lifecycle-row:hover:not(:disabled) {
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-lifecycle-row:disabled {
+  cursor: default;
+}
+
+.beam-console-lifecycle-row.is-selected {
+  background: var(--bc-accent-soft);
+  box-shadow: inset 2px 0 var(--bc-accent);
+}
+
+.beam-console-event-kind {
+  justify-self: start;
+  border-radius: 5px;
+  text-transform: lowercase;
+}
+
+.beam-console-event-copy {
+  min-width: 0;
+}
+
+.beam-console-event-copy strong,
+.beam-console-event-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beam-console-event-copy strong {
+  font-size: 11px;
+}
+
+.beam-console-event-copy small,
+.beam-console-lifecycle-row time {
+  margin-top: 3px;
+  color: var(--bc-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+}
+
+.beam-console-lifecycle-row time {
+  margin: 0;
+  text-align: right;
 }
 
 .beam-console-detail-status {
@@ -832,6 +1034,15 @@
   line-height: 1.45;
 }
 
+.beam-console-lifecycle-controls .beam-console-warning {
+  min-height: 32px;
+  margin: 0;
+  padding: 8px 15px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  line-height: 15px;
+}
+
 .beam-console-shell button:focus-visible,
 .beam-console-shell input:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--bc-accent), transparent 28%);
@@ -876,6 +1087,127 @@
   }
 }
 
+.beam-console-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.beam-console-chart-card {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: var(--bc-surface);
+}
+
+.beam-console-chart-card figcaption {
+  display: flex;
+  min-height: 28px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--bc-text);
+}
+
+.beam-console-chart-card figcaption span {
+  color: var(--bc-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.beam-console-chart-card svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.beam-console-chart-gridline {
+  stroke: var(--bc-border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.beam-console-chart-line {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.beam-console-chart-legend {
+  display: flex;
+  min-height: 20px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--bc-muted);
+  font-size: 11px;
+}
+
+.beam-console-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.beam-console-chart-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.beam-console-movers {
+  margin: 0 16px 16px;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.beam-console-movers h2 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--bc-border);
+  font-size: 12px;
+}
+
+.beam-console-mover-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--bc-border);
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.beam-console-mover-row:hover,
+.beam-console-mover-row:focus-visible {
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-mover-row span,
+.beam-console-mover-row small {
+  display: block;
+}
+
+.beam-console-mover-row small {
+  margin-top: 2px;
+  color: var(--bc-muted);
+  font-size: 11px;
+}
+
+.beam-console-mover-row b {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 1180px) {
   .beam-console-shell {
     padding: 12px;
@@ -884,6 +1216,18 @@
   .beam-console-frame {
     grid-template-columns: 230px minmax(0, 1fr);
     grid-template-rows: 68px minmax(680px, calc(100vh - 92px)) auto;
+  }
+
+  .beam-console-header {
+    gap: 10px;
+  }
+
+  .beam-console-tabs {
+    order: 3;
+  }
+
+  .beam-console-search-form {
+    width: min(240px, 25vw);
   }
 
   .beam-console-inspector {
@@ -933,6 +1277,17 @@
     width: 100%;
   }
 
+  .beam-console-tabs {
+    width: 100%;
+    order: 2;
+    justify-content: space-between;
+  }
+
+  .beam-console-tab {
+    flex: 1;
+    text-align: center;
+  }
+
   .beam-console-status {
     display: none;
   }
@@ -952,7 +1307,7 @@
   }
 
   .beam-console-graph-stage {
-    grid-template-rows: 58px 412px;
+    grid-template-rows: var(--bc-panel-header-height) 412px;
   }
 
   .beam-console-legend {
@@ -971,6 +1326,22 @@
 
   .beam-console-inspector {
     min-height: 340px;
+  }
+
+  .beam-console-recorder-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .beam-console-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .beam-console-lifecycle-row {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .beam-console-lifecycle-row time {
+    display: none;
   }
 
   .beam-console-detail {

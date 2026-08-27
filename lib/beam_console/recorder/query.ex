@@ -7,6 +7,7 @@ defmodule BeamConsole.Recorder.Query do
   """
 
   alias BeamConsole.Lifecycle.Event
+  alias BeamConsole.Recorder.Frame
   alias BeamConsole.Recorder.History
   alias BeamConsole.Recorder.Point
 
@@ -17,7 +18,7 @@ defmodule BeamConsole.Recorder.Query do
             available_to_ms: nil,
             segment: 0
 
-  @type item :: Event.t() | Point.t()
+  @type item :: Event.t() | Frame.t() | Point.t()
   @type t :: %__MODULE__{
           items: [item()],
           omitted: non_neg_integer(),
@@ -59,6 +60,26 @@ defmodule BeamConsole.Recorder.Query do
     {history, build_result(points, limit, history.dropped_points, history.segment)}
   end
 
+  @spec frames(History.t(), keyword()) :: {History.t(), t()}
+  @doc "Returns ordered aggregate frames under the configured frame cap."
+  def frames(history, options \\ []) do
+    history = prune(history, options)
+    since_ms = Keyword.get(options, :since_ms)
+
+    filtered =
+      Enum.filter(history.frames, fn frame ->
+        is_nil(since_ms) or frame.sampled_at_ms >= since_ms
+      end)
+
+    {history,
+     build_result(
+       filtered,
+       requested_limit(options, history.config.frame_limit),
+       history.dropped_frames,
+       history.segment
+     )}
+  end
+
   defp prune(history, options) do
     now_ms = Keyword.get(options, :now_ms, System.monotonic_time(:millisecond))
 
@@ -88,6 +109,11 @@ defmodule BeamConsole.Recorder.Query do
     }
   end
 
-  defp boundary_time(nil), do: nil
-  defp boundary_time(value), do: value.monotonic_ms
+  defp boundary_time(nil) do
+    nil
+  end
+
+  defp boundary_time(value) do
+    value.monotonic_ms
+  end
 end

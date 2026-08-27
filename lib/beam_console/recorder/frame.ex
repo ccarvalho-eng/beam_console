@@ -6,7 +6,9 @@ defmodule BeamConsole.Recorder.Frame do
   explicit coverage state suitable for bounded in-memory history.
   """
 
+  alias BeamConsole.Activity.Sample, as: ActivitySample
   alias BeamConsole.Coverage
+  alias BeamConsole.Runtime.Sample, as: RuntimeSample
   alias BeamConsole.Snapshot
 
   @enforce_keys [:sequence, :sampled_at_ms, :monotonic_ms]
@@ -18,6 +20,8 @@ defmodule BeamConsole.Recorder.Frame do
             supervisor_count: 0,
             application_count: 0,
             ets_count: 0,
+            activity: nil,
+            runtime: nil,
             coverage: :complete
 
   @type coverage :: :complete | :partial | :truncated
@@ -30,12 +34,15 @@ defmodule BeamConsole.Recorder.Frame do
           supervisor_count: non_neg_integer(),
           application_count: non_neg_integer(),
           ets_count: non_neg_integer(),
+          activity: ActivitySample.t() | nil,
+          runtime: RuntimeSample.t() | nil,
           coverage: coverage()
         }
 
-  @spec from_snapshot(Snapshot.t(), integer()) :: t()
+  @spec from_snapshot(Snapshot.t(), integer(), ActivitySample.t() | nil) :: t()
   @doc "Builds a PID-free aggregate frame from one completed runtime snapshot."
-  def from_snapshot(%Snapshot{} = snapshot, monotonic_ms) when is_integer(monotonic_ms) do
+  def from_snapshot(%Snapshot{} = snapshot, monotonic_ms, activity \\ nil)
+      when is_integer(monotonic_ms) do
     %__MODULE__{
       sequence: snapshot.sequence,
       sampled_at_ms: DateTime.to_unix(snapshot.sampled_at, :millisecond),
@@ -43,8 +50,19 @@ defmodule BeamConsole.Recorder.Frame do
       process_count: map_size(snapshot.processes),
       supervisor_count: supervisor_count(snapshot),
       application_count: map_size(snapshot.applications),
+      ets_count: runtime_value(snapshot.runtime_sample, :ets_count, 0),
+      activity: activity,
+      runtime: snapshot.runtime_sample,
       coverage: coverage_state(snapshot.coverage)
     }
+  end
+
+  defp runtime_value(%RuntimeSample{} = sample, field, _default) do
+    Map.fetch!(sample, field)
+  end
+
+  defp runtime_value(nil, _field, default) do
+    default
   end
 
   defp supervisor_count(snapshot) do

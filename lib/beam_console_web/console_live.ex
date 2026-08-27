@@ -1,85 +1,120 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.ConsoleLive do
     @moduledoc """
-    Renders the live process map, searchable runtime tree, and safe inspector.
+    Coordinates the URL-backed Process Map, Lifecycle, Activity, and Runtime views.
 
-    The LiveView subscribes to the shared collector and keeps entity selection
-    URL-backed so a process can remain inspectable as an observed tombstone
-    after it exits.
+    Runtime snapshots are transformed inside callbacks and never retained in
+    the long-lived LiveView socket. Lists use bounded streams and browser-owned
+    graph/chart surfaces receive bounded scalar payloads.
     """
 
     use BeamConsoleWeb, :live_view
 
+    import BeamConsoleWeb.Components.InspectorComponents, only: [inspector: 1]
+    import BeamConsoleWeb.Components.LifecycleComponents, only: [lifecycle: 1]
+    import BeamConsoleWeb.Components.ProcessMapComponents, only: [process_map: 1]
+    import BeamConsoleWeb.Components.ShellComponents, only: [header: 1]
+    import BeamConsoleWeb.Components.StatsComponents, only: [activity: 1, runtime: 1]
+    import BeamConsoleWeb.Components.TreeComponents, only: [runtime_tree: 1]
+
+    alias BeamConsole.ApplicationTreeConfig
+    alias BeamConsole.Recorder
+    alias BeamConsole.Recorder.Status, as: RecorderStatus
     alias BeamConsole.Snapshot
+    alias BeamConsoleWeb.Console.ActivityPresenter
+    alias BeamConsoleWeb.Console.ApplicationTreePresenter
+    alias BeamConsoleWeb.Console.DashboardPresenter
+    alias BeamConsoleWeb.Console.LifecyclePresenter
+    alias BeamConsoleWeb.Console.Params
+    alias BeamConsoleWeb.Console.Paths
+    alias BeamConsoleWeb.Console.RuntimePresenter
     alias BeamConsoleWeb.Graph
 
     @process_limit 150
 
     @impl true
     def mount(_params, _session, socket) do
-      snapshot = BeamConsole.latest_snapshot()
-
       socket =
         socket
         |> assign(:page_title, "Process Map")
+        |> assign(:params, %Params{})
+        |> assign(:tab, :process_map)
+        |> assign(:tab_paths, %{})
         |> assign(:query, "")
         |> assign(:selected_id, nil)
         |> assign(:selected, nil)
         |> assign(:detail, nil)
         |> assign(:graph_focus_id, nil)
         |> assign(:graph_refresh_pending?, false)
-        |> assign(:snapshot, snapshot)
-        |> assign(:loading?, is_nil(snapshot))
+        |> assign(:loading?, true)
+        |> assign(:sequence, 0)
+        |> assign(:sampled_at, nil)
+        |> assign(:status_label, "Sampling runtime")
+        |> assign(:status_state, :loading)
+        |> assign(:collector_status, nil)
+        |> assign(:recorder_status, %RecorderStatus{})
+        |> assign(:recorder_label, "Inactive")
         |> assign(:process_count, 0)
-        |> assign(:applications, [])
+        |> assign(:process_matching_count, 0)
+        |> assign(:process_omitted_count, 0)
+        |> assign(:application_count, 0)
+        |> assign(:application_categories, [])
         |> assign(:nodes, [])
         |> assign(:coverage_warnings, [])
+        |> assign(:lifecycle_query, %BeamConsole.Recorder.Query{})
+        |> assign(:activity_summary, empty_activity_summary())
+        |> assign(:activity_has_samples?, false)
+        |> assign(:runtime_summary, empty_runtime_summary())
+        |> assign(:runtime_has_samples?, false)
         |> assign(:filter_form, to_form(%{"q" => ""}, as: :filters))
         |> stream(:processes, [])
+        |> stream(:lifecycle_events, [])
+        |> stream(:top_movers, [])
 
       if connected?(socket) do
-        {:ok, latest} = BeamConsole.subscribe()
-        socket = load_snapshot(socket, latest || snapshot)
+        {:ok, snapshot} = BeamConsole.subscribe()
 
-        if is_nil(latest), do: BeamConsole.refresh()
+        if is_nil(snapshot) do
+          _result = BeamConsole.refresh()
+        end
 
         {:ok, socket}
       else
-        {:ok, load_snapshot(socket, snapshot)}
+        {:ok, socket}
       end
     end
 
     @impl true
-    def handle_params(params, _uri, socket) do
-      query = Map.get(params, "q", "") |> String.slice(0, 120)
-      selected_id = Map.get(params, "entity")
+    def handle_params(raw_params, _uri, socket) do
+      params = Params.normalize(raw_params, socket.assigns.live_action)
 
       socket =
         socket
-        |> assign(:query, query)
-        |> assign(:selected_id, selected_id)
-        |> assign(:filter_form, to_form(%{"q" => query}, as: :filters))
-        |> load_snapshot(BeamConsole.latest_snapshot())
-        |> load_selection(selected_id)
+        |> assign_navigation(params)
+        |> maybe_refresh_view()
 
-      {:noreply, push_graph(socket)}
+      {:noreply, socket}
     end
 
     @impl true
-    def handle_event("search", %{"filters" => %{"q" => query}}, socket) do
-      path = console_path(socket, query, socket.assigns.selected_id)
-      {:noreply, push_patch(socket, to: path)}
+    def handle_event("search", %{"filters" => %{"q" => query}}, socket) when is_binary(query) do
+      params = %{socket.assigns.params | query: String.slice(query, 0, 120)}
+      {:noreply, push_patch(socket, to: current_path(socket, params))}
+    end
+
+    def handle_event("search", _params, socket) do
+      {:noreply, socket}
     end
 
     def handle_event("select_entity", %{"id" => entity_id}, socket)
-        when is_binary(entity_id) do
-      selected_id =
-        if socket.assigns.snapshot && Map.has_key?(socket.assigns.snapshot.index, entity_id) do
-          entity_id
-        end
+        when is_binary(entity_id) and entity_id != "" do
+      snapshot = BeamConsole.latest_snapshot()
 
-      path = console_path(socket, socket.assigns.query, selected_id)
-      {:noreply, push_patch(socket, to: path)}
+      selected_id =
+        if DashboardPresenter.valid_selection?(snapshot, entity_id), do: entity_id, else: nil
+
+      params = %{socket.assigns.params | selected_id: selected_id}
+      {:noreply, push_patch(socket, to: current_path(socket, params))}
     end
 
     def handle_event("select_entity", _params, socket) do
@@ -87,22 +122,38 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     def handle_event("request_graph", _params, socket) do
-      {:noreply, push_graph(socket)}
+      {:noreply, push_latest_graph(socket)}
     end
 
     def handle_event("refresh", _params, socket) do
-      BeamConsole.refresh()
-      {:noreply, assign(socket, :graph_refresh_pending?, true)}
+      case BeamConsole.refresh() do
+        :ok -> {:noreply, assign(socket, :graph_refresh_pending?, true)}
+        {:error, :rate_limited} -> {:noreply, socket}
+      end
+    end
+
+    def handle_event("toggle_recording", _params, socket) do
+      status =
+        case socket.assigns.recorder_status.activity do
+          :recording -> Recorder.pause()
+          _other -> Recorder.resume()
+        end
+
+      socket =
+        socket
+        |> assign_recorder_status(status)
+        |> load_lifecycle()
+        |> load_stats()
+
+      {:noreply, socket}
     end
 
     @impl true
     def handle_info({:beam_console_snapshot, sequence}, socket) do
       socket =
         socket
-        |> load_snapshot(BeamConsole.latest_snapshot())
-        |> load_selection(socket.assigns.selected_id)
+        |> refresh_view(BeamConsole.latest_snapshot())
         |> assign(:graph_refresh_pending?, false)
-        |> push_graph()
 
       :ok = BeamConsole.acknowledge(sequence)
       {:noreply, socket}
@@ -113,393 +164,242 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       ~H"""
       <div id="beam-console" class="beam-console-shell" phx-hook="BeamConsoleTheme">
         <div class="beam-console-frame">
-          <header class="beam-console-header">
-            <div class="beam-console-brand">
-              <div class="beam-console-mark" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <circle cx="6" cy="6" r="2.25" />
-                  <circle cx="18" cy="7" r="2.25" />
-                  <circle cx="12" cy="18" r="2.25" />
-                  <path d="M7.9 7.15 10.8 16M16.1 8.2 13.2 16M8.2 6.2l7.5.6" />
-                </svg>
-              </div>
-              <div>
-                <p class="beam-console-eyebrow">BeamConsole</p>
-                <h1 class="beam-console-title">Process Map</h1>
-              </div>
-            </div>
+          <.header
+            page_title={@page_title}
+            status_label={@status_label}
+            status_state={@status_state}
+            filter_form={@filter_form}
+            tab={@tab}
+            tab_paths={@tab_paths}
+            recorder_activity={@recorder_status.activity}
+            refresh_pending?={@graph_refresh_pending?}
+          />
 
-            <div class="beam-console-actions">
-              <span class={["beam-console-status", @loading? && "is-loading"]}>
-                <%= if @snapshot do %>
-                  Live · sample {@snapshot.sequence}
-                <% else %>
-                  Sampling runtime
-                <% end %>
-              </span>
-              <.form
-                for={@filter_form}
-                id="beam-console-search"
-                class="beam-console-search-form"
-                phx-change="search"
-              >
-                <svg class="beam-console-search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="11" cy="11" r="6.5" />
-                  <path d="m16 16 4 4" />
-                </svg>
-                <input
-                  id="beam-console-query"
-                  class="beam-console-search"
-                  type="search"
-                  name={@filter_form[:q].name}
-                  value={@filter_form[:q].value}
-                  placeholder="Search processes"
-                  phx-debounce="250"
-                  autocomplete="off"
-                />
-              </.form>
-              <button
-                id="beam-console-refresh"
-                class={[
-                  "beam-console-icon-button",
-                  @graph_refresh_pending? && "is-pending"
-                ]}
-                phx-click="refresh"
-                aria-label="Refresh runtime sample"
-                data-tooltip="Refresh sample"
-              >
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-              </button>
-              <div
-                id="beam-console-theme-switcher"
-                class="beam-console-theme-switcher"
-                aria-label="Theme"
-              >
-                <button
-                  type="button"
-                  class="beam-console-theme-button"
-                  data-beam-console-theme="system"
-                  aria-label="Use system theme"
-                  title="Use system theme"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="13" rx="2" />
-                    <path d="M8 21h8M12 17v4" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="beam-console-theme-button"
-                  data-beam-console-theme="light"
-                  aria-label="Use light theme"
-                  title="Use light theme"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="3.5" />
-                    <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="beam-console-theme-button"
-                  data-beam-console-theme="dark"
-                  aria-label="Use dark theme"
-                  title="Use dark theme"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M20 15.2A8.2 8.2 0 0 1 8.8 4a8.2 8.2 0 1 0 11.2 11.2Z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </header>
+          <.runtime_tree
+            nodes={@nodes}
+            categories={@application_categories}
+            application_count={@application_count}
+            selected_id={@selected_id}
+            coverage_warnings={@coverage_warnings}
+          />
 
-          <aside class="beam-console-sidebar" aria-label="Runtime hierarchy">
-            <div class="beam-console-panel-heading">
-              <div class="beam-console-heading-line">
-                <h2>Runtime</h2>
-                <span class="beam-console-heading-count">{length(@applications)} apps</span>
-              </div>
-              <p>Nodes and started applications</p>
-            </div>
+          <.process_map
+            :if={@tab == :process_map}
+            streams={@streams}
+            process_count={@process_count}
+            process_matching_count={@process_matching_count}
+            process_omitted_count={@process_omitted_count}
+            selected_id={@selected_id}
+            loading?={@loading?}
+          />
 
-            <div :for={warning <- @coverage_warnings} class="beam-console-warning">{warning}</div>
+          <.lifecycle
+            :if={@tab == :lifecycle}
+            streams={@streams}
+            recorder_status={@recorder_status}
+            recorder_label={@recorder_label}
+            lifecycle_query={@lifecycle_query}
+            selected_id={@selected_id}
+          />
 
-            <ul id="beam-console-runtime-tree" class="beam-console-list" phx-hook="BeamConsoleTree">
-              <li :for={runtime_node <- @nodes}>
-                <details
-                  id={"tree-#{runtime_node.id}"}
-                  class="beam-console-tree-branch"
-                  open
-                >
-                  <summary
-                    id={"select-#{runtime_node.id}"}
-                    class={[
-                      "beam-console-link beam-console-tree-summary",
-                      @selected_id == runtime_node.id && "is-selected"
-                    ]}
-                    phx-click="select_entity"
-                    phx-value-id={runtime_node.id}
-                  >
-                    <span class="beam-console-link-label">
-                      <span class="beam-console-tree-caret" aria-hidden="true"></span>
-                      <span class="beam-console-node-dot"></span>
-                      {runtime_node.name}
-                    </span>
-                    <span class="beam-console-count">
-                      {if(runtime_node.inspectable?, do: "local", else: "inventory")}
-                    </span>
-                  </summary>
+          <.activity
+            :if={@tab == :activity}
+            streams={@streams}
+            summary={@activity_summary}
+            has_samples?={@activity_has_samples?}
+          />
+          <.runtime
+            :if={@tab == :runtime}
+            summary={@runtime_summary}
+            has_samples?={@runtime_has_samples?}
+          />
 
-                  <ul :if={runtime_node.inspectable?}>
-                    <li :for={application <- @applications}>
-                      <button
-                        id={"select-#{application.id}"}
-                        class={[
-                          "beam-console-link",
-                          @selected_id == application.id && "is-selected"
-                        ]}
-                        phx-click="select_entity"
-                        phx-value-id={application.id}
-                      >
-                        <span class="beam-console-link-label">
-                          {application.name}
-                        </span>
-                        <span class="beam-console-count">app</span>
-                      </button>
-                    </li>
-                  </ul>
-                </details>
-              </li>
-            </ul>
-          </aside>
-
-          <main class="beam-console-main">
-            <section class="beam-console-graph-stage" aria-label="Supervision topology">
-              <div class="beam-console-graph-toolbar">
-                <div>
-                  <span class="beam-console-kicker">Topology</span>
-                  <strong>Live supervision · positions preserved</strong>
-                </div>
-                <div class="beam-console-legend" aria-label="Graph legend">
-                  <span><i class="is-app"></i>Application</span>
-                  <span><i></i>Process</span>
-                </div>
-              </div>
-              <div
-                id="beam-console-graph"
-                class="beam-console-graph"
-                phx-hook="BeamConsoleGraph"
-                phx-update="ignore"
-                role="img"
-                aria-label="Interactive runtime supervision graph"
-              >
-              </div>
-            </section>
-
-            <section class="beam-console-processes" aria-label="Process explorer">
-              <div class="beam-console-panel-heading beam-console-process-heading">
-                <div class="beam-console-heading-line">
-                  <h2>Processes</h2>
-                  <span class="beam-console-heading-count">{@process_count} shown</span>
-                </div>
-                <p>Latest bounded runtime sample</p>
-              </div>
-
-              <div :if={@process_count > 0} class="beam-console-process-columns" aria-hidden="true">
-                <span>Process</span><span>Memory</span><span>Mailbox</span><span>Status</span>
-              </div>
-
-              <div :if={@process_count == 0} class="beam-console-empty">
-                <div class="beam-console-empty-mark" aria-hidden="true">···</div>
-                <%= if @loading? do %>
-                  Collecting the first runtime sample…
-                <% else %>
-                  No processes match this search.
-                <% end %>
-              </div>
-
-              <div id="beam-console-process-list" phx-update="stream">
-                <button
-                  :for={{dom_id, process} <- @streams.processes}
-                  id={dom_id}
-                  class={[
-                    "beam-console-process-row",
-                    @selected_id == process.id && "is-selected"
-                  ]}
-                  phx-click="select_entity"
-                  phx-value-id={process.id}
-                >
-                  <span class="beam-console-process-label">
-                    <i aria-hidden="true"></i>{process.label}
-                  </span>
-                  <span class="beam-console-process-meta">{format_bytes(process.memory)}</span>
-                  <span class="beam-console-process-meta">{process.message_queue_len || 0}</span>
-                  <span class="beam-console-process-status">{process.status || "unknown"}</span>
-                </button>
-              </div>
-            </section>
-          </main>
-
-          <aside class="beam-console-inspector" aria-label="Selected entity details">
-            <div class="beam-console-panel-heading">
-              <div class="beam-console-heading-line">
-                <h2>Inspector</h2>
-                <span class="beam-console-heading-count">read only</span>
-              </div>
-              <p>Allowlisted runtime metadata</p>
-            </div>
-
-            <%= if @detail do %>
-              <div id="beam-console-detail" class="beam-console-detail">
-                <div class="beam-console-detail-heading">
-                  <div>
-                    <p class="beam-console-kicker">Process</p>
-                    <h3>{@detail.label}</h3>
-                    <p class="beam-console-detail-pid">{@detail.pid_text}</p>
-                  </div>
-                  <span class="beam-console-detail-status">{@detail.status || "unknown"}</span>
-                </div>
-
-                <div class="beam-console-metrics">
-                  <div><span>Memory</span><strong>{format_bytes(@detail.memory)}</strong></div>
-                  <div>
-                    <span>Reductions</span><strong>{format_integer(@detail.reductions)}</strong>
-                  </div>
-                  <div><span>Mailbox</span><strong>{@detail.message_queue_len || 0}</strong></div>
-                </div>
-
-                <dl class="beam-console-fields">
-                  <dt>Application</dt><dd>{@detail.application || "unattributed"}</dd>
-                  <dt>Module</dt><dd>{@detail.module || "unknown"}</dd>
-                  <dt>Current</dt><dd>{@detail.current_function || "unknown"}</dd>
-                </dl>
-
-                <.relation_list title="Links" values={@detail.links} />
-                <.relation_list title="Monitors" values={@detail.monitors} />
-                <.relation_list title="Monitored by" values={@detail.monitored_by} />
-              </div>
-            <% else %>
-              <div id="beam-console-detail-empty" class="beam-console-empty">
-                <div class="beam-console-empty-mark" aria-hidden="true">⌁</div>
-                <%= if @selected do %>
-                  {@selected.label}<br />Details are unavailable or this entity is inventory-only.
-                <% else %>
-                  Select a process, application, or node to inspect it.
-                <% end %>
-              </div>
-            <% end %>
-          </aside>
+          <.inspector selected={@selected} detail={@detail} />
         </div>
       </div>
       """
     end
 
-    attr(:title, :string, required: true)
-    attr(:values, :list, required: true)
-
-    defp relation_list(assigns) do
-      ~H"""
-      <section :if={@values != []} class="beam-console-relation">
-        <h4>{@title}</h4>
-        <ul>
-          <li :for={value <- @values}>{value}</li>
-        </ul>
-      </section>
-      """
-    end
-
-    defp load_snapshot(socket, nil) do
-      socket
-      |> assign(:loading?, true)
-      |> assign(:snapshot, nil)
-      |> assign(:applications, [])
-      |> assign(:nodes, [])
-      |> assign(:process_count, 0)
-      |> assign(:coverage_warnings, [])
-      |> stream(:processes, [], reset: true)
-    end
-
-    defp load_snapshot(socket, %Snapshot{} = snapshot) do
-      processes = BeamConsole.search(snapshot, socket.assigns.query, @process_limit)
-      graph_focus_id = stable_graph_focus(snapshot, socket.assigns.graph_focus_id)
+    defp assign_navigation(socket, params) do
+      tab_paths =
+        Map.new([:process_map, :lifecycle, :activity, :runtime], fn tab ->
+          {tab, Paths.path(socket.assigns.prefix, tab, params)}
+        end)
 
       socket
-      |> assign(:loading?, false)
-      |> assign(:snapshot, snapshot)
-      |> assign(:applications, snapshot.applications |> Map.values() |> Enum.sort_by(& &1.name))
-      |> assign(:nodes, snapshot.nodes |> Map.values() |> Enum.sort_by(&{&1.kind, &1.name}))
-      |> assign(:process_count, length(processes))
-      |> assign(:graph_focus_id, graph_focus_id)
-      |> assign(:coverage_warnings, snapshot.coverage.warnings)
-      |> stream(:processes, processes, reset: true)
+      |> assign(:params, params)
+      |> assign(:tab, params.tab)
+      |> assign(:page_title, page_title(params.tab))
+      |> assign(:tab_paths, tab_paths)
+      |> assign(:query, params.query)
+      |> assign(:selected_id, params.selected_id)
+      |> assign(:filter_form, to_form(%{"q" => params.query}, as: :filters))
     end
 
-    defp load_selection(socket, nil) do
-      socket
-      |> assign(:selected, nil)
-      |> assign(:detail, nil)
-    end
-
-    defp load_selection(%{assigns: %{snapshot: nil}} = socket, _selected_id) do
-      socket
-      |> assign(:selected, nil)
-      |> assign(:detail, nil)
-    end
-
-    defp load_selection(socket, selected_id) do
-      snapshot = socket.assigns.snapshot
-
-      case Map.get(snapshot.index, selected_id) do
-        {:process, _pid} ->
-          process = Map.get(snapshot.processes, selected_id)
-
-          detail =
-            case BeamConsole.detail(snapshot, selected_id) do
-              {:ok, value} -> value
-              {:error, _reason} -> nil
-            end
-
-          socket
-          |> assign(:selected, process)
-          |> assign(:detail, detail)
-
-        {:application, _application} ->
-          application = Map.get(snapshot.applications, selected_id)
-
-          socket
-          |> assign(:selected, %{label: Atom.to_string(application.name)})
-          |> assign(:detail, nil)
-
-        {:node, _node_name} ->
-          runtime_node = Map.get(snapshot.nodes, selected_id)
-
-          socket
-          |> assign(:selected, %{label: runtime_node.name})
-          |> assign(:detail, nil)
-
-        _other ->
-          socket
-          |> assign(:selected, %{label: "Unknown entity"})
-          |> assign(:detail, nil)
+    defp maybe_refresh_view(socket) do
+      if connected?(socket) do
+        refresh_view(socket, BeamConsole.latest_snapshot())
+      else
+        socket
       end
     end
 
-    defp push_graph(%{assigns: %{snapshot: nil}} = socket) do
+    defp refresh_view(socket, nil) do
+      socket
+      |> assign(:loading?, true)
+      |> assign(:sequence, 0)
+      |> assign(:sampled_at, nil)
+      |> assign(:selected, nil)
+      |> assign(:detail, nil)
+      |> assign(:nodes, [])
+      |> assign(:application_categories, [])
+      |> assign(:application_count, 0)
+      |> assign(:process_count, 0)
+      |> assign(:process_matching_count, 0)
+      |> assign(:process_omitted_count, 0)
+      |> assign(:coverage_warnings, [])
+      |> assign_health()
+      |> load_lifecycle()
+      |> load_stats()
+      |> stream(:processes, [], reset: true)
+    end
+
+    defp refresh_view(socket, %Snapshot{} = snapshot) do
+      process_result =
+        DashboardPresenter.process_result(snapshot, socket.assigns.query, @process_limit)
+
+      selected = DashboardPresenter.selection(snapshot, socket.assigns.selected_id)
+      detail = selected_detail(snapshot, selected)
+      graph_focus_id = stable_graph_focus(snapshot, socket.assigns.graph_focus_id)
+      categories = ApplicationTreePresenter.present(snapshot, ApplicationTreeConfig.load())
+
+      socket =
+        socket
+        |> assign(:loading?, false)
+        |> assign(:sequence, snapshot.sequence)
+        |> assign(:sampled_at, snapshot.sampled_at)
+        |> assign(:selected, selected)
+        |> assign(:detail, detail)
+        |> assign(:nodes, DashboardPresenter.nodes(snapshot))
+        |> assign(:application_categories, categories)
+        |> assign(:application_count, map_size(snapshot.applications))
+        |> assign(:process_count, length(process_result.items))
+        |> assign(:process_matching_count, process_result.matching_count)
+        |> assign(:process_omitted_count, process_result.omitted_count)
+        |> assign(:graph_focus_id, graph_focus_id)
+        |> assign(:coverage_warnings, snapshot.coverage.warnings)
+        |> assign_health()
+        |> load_lifecycle()
+        |> load_stats()
+        |> stream(:processes, process_result.items, reset: true)
+
+      push_graph(socket, snapshot)
+    end
+
+    defp assign_health(socket) do
+      collector_status = BeamConsole.status()
+      recorder_status = Recorder.status()
+
+      {status_label, status_state} =
+        cond do
+          collector_status.stale? -> {"Stale · sample #{collector_status.sequence}", :stale}
+          collector_status.sequence == 0 -> {"Sampling runtime", :loading}
+          true -> {"Live · sample #{collector_status.sequence}", :live}
+        end
+
+      socket
+      |> assign(:collector_status, collector_status)
+      |> assign(:status_label, status_label)
+      |> assign(:status_state, status_state)
+      |> assign_recorder_status(recorder_status)
+    end
+
+    defp assign_recorder_status(socket, recorder_status) do
+      socket
+      |> assign(:recorder_status, recorder_status)
+      |> assign(:recorder_label, LifecyclePresenter.activity_label(recorder_status))
+    end
+
+    defp load_lifecycle(socket) do
+      if socket.assigns.tab == :lifecycle do
+        query = Recorder.events(LifecyclePresenter.query_options(socket.assigns.params))
+        rows = LifecyclePresenter.rows(query, socket.assigns.query)
+
+        socket
+        |> assign(:lifecycle_query, query)
+        |> stream(:lifecycle_events, rows, reset: true)
+      else
+        socket
+      end
+    end
+
+    defp load_stats(%{assigns: %{tab: :activity}} = socket) do
+      result = stats_query(socket)
+      presentation = ActivityPresenter.present(result, socket.assigns.sequence)
+      has_samples? = Enum.count(result.items, & &1.activity) >= 2
+
+      socket
+      |> assign(:activity_summary, presentation.summary)
+      |> assign(:activity_has_samples?, has_samples?)
+      |> stream(:top_movers, presentation.movers, reset: true)
+      |> push_event("beam_console_charts", %{
+        revision: socket.assigns.sequence,
+        charts: presentation.charts
+      })
+    end
+
+    defp load_stats(%{assigns: %{tab: :runtime}} = socket) do
+      result = stats_query(socket)
+      presentation = RuntimePresenter.present(result, socket.assigns.sequence)
+      has_samples? = Enum.any?(result.items, & &1.runtime)
+
+      socket
+      |> assign(:runtime_summary, presentation.summary)
+      |> assign(:runtime_has_samples?, has_samples?)
+      |> push_event("beam_console_charts", %{
+        revision: socket.assigns.sequence,
+        charts: presentation.charts
+      })
+    end
+
+    defp load_stats(socket) do
       socket
     end
 
-    defp push_graph(socket) do
-      payload =
-        Graph.payload(
-          socket.assigns.snapshot,
-          socket.assigns.selected_id,
-          socket.assigns.graph_focus_id
-        )
+    defp stats_query(socket) do
+      window_ms = Params.window_ms(socket.assigns.params)
+      Recorder.samples(since_ms: System.system_time(:millisecond) - window_ms)
+    end
 
+    defp selected_detail(_snapshot, %{kind: kind}) when kind != :process do
+      nil
+    end
+
+    defp selected_detail(snapshot, %{id: selected_id, kind: :process}) do
+      case BeamConsole.detail(snapshot, selected_id) do
+        {:ok, detail} -> detail
+        {:error, _reason} -> nil
+      end
+    end
+
+    defp selected_detail(_snapshot, _selected) do
+      nil
+    end
+
+    defp push_latest_graph(socket) do
+      case BeamConsole.latest_snapshot() do
+        %Snapshot{} = snapshot -> push_graph(socket, snapshot)
+        nil -> socket
+      end
+    end
+
+    defp push_graph(%{assigns: %{tab: :process_map}} = socket, snapshot) do
+      payload = Graph.payload(snapshot, socket.assigns.selected_id, socket.assigns.graph_focus_id)
       push_event(socket, "beam_console_graph", payload)
+    end
+
+    defp push_graph(socket, _snapshot) do
+      socket
     end
 
     defp stable_graph_focus(snapshot, focus_id) do
@@ -509,46 +409,39 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end
     end
 
-    defp console_path(socket, query, selected_id) do
-      params =
-        %{}
-        |> maybe_put("q", String.trim(query))
-        |> maybe_put("entity", selected_id)
-
-      suffix = if map_size(params) == 0, do: "", else: "?" <> URI.encode_query(params)
-      String.trim_trailing(socket.assigns.prefix, "/") <> suffix
+    defp current_path(socket, params) do
+      Paths.path(socket.assigns.prefix, socket.assigns.tab, params)
     end
 
-    defp maybe_put(params, _key, nil) do
-      params
+    defp page_title(:process_map) do
+      "Process Map"
     end
 
-    defp maybe_put(params, _key, "") do
-      params
+    defp page_title(:lifecycle) do
+      "Lifecycle"
     end
 
-    defp maybe_put(params, key, value) do
-      Map.put(params, key, value)
+    defp page_title(:activity) do
+      "Activity"
     end
 
-    defp format_bytes(nil) do
-      "—"
+    defp page_title(:runtime) do
+      "Runtime"
     end
 
-    defp format_bytes(bytes) when bytes < 1_024 do
-      "#{bytes} B"
+    defp empty_activity_summary do
+      %{reductions_per_second: 0, mailbox_delta: 0, memory_delta: 0, omitted: 0}
     end
 
-    defp format_bytes(bytes) do
-      "#{Float.round(bytes / 1_024, 1)} KB"
-    end
-
-    defp format_integer(nil) do
-      "—"
-    end
-
-    defp format_integer(value) do
-      Integer.to_string(value)
+    defp empty_runtime_summary do
+      %{
+        process_count: 0,
+        supervisor_count: 0,
+        ets_count: 0,
+        run_queue: nil,
+        collector_partial?: false,
+        omitted: 0
+      }
     end
   end
 end

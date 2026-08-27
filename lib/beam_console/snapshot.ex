@@ -19,6 +19,7 @@ defmodule BeamConsole.Snapshot do
             edges: %{},
             index: %{},
             lifecycle_observations: [],
+            runtime_sample: nil,
             coverage: %Coverage{},
             stale?: false
 
@@ -35,6 +36,7 @@ defmodule BeamConsole.Snapshot do
           edges: %{String.t() => BeamConsole.SupervisionEdge.t()},
           index: %{String.t() => private_index_value()},
           lifecycle_observations: [Observation.t()],
+          runtime_sample: BeamConsole.Runtime.Sample.t() | nil,
           coverage: Coverage.t(),
           stale?: boolean()
         }

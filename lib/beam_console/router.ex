@@ -43,7 +43,10 @@ if Code.ensure_loaded?(Phoenix.Router) and Code.ensure_loaded?(Phoenix.LiveView.
               get("/assets/phoenix/:digest", BeamConsoleWeb.Assets, :phoenix)
               get("/assets/live-view/:digest", BeamConsoleWeb.Assets, :live_view)
               get("/assets/cytoscape/:digest", BeamConsoleWeb.Assets, :cytoscape)
-              live("/", BeamConsoleWeb.ConsoleLive, :index, route_options)
+              live("/", BeamConsoleWeb.ConsoleLive, :process_map, route_options)
+              live("/lifecycle", BeamConsoleWeb.ConsoleLive, :lifecycle, route_options)
+              live("/activity", BeamConsoleWeb.ConsoleLive, :activity, route_options)
+              live("/runtime", BeamConsoleWeb.ConsoleLive, :runtime, route_options)
             end
           end
         end

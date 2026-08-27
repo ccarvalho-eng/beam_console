@@ -6,8 +6,8 @@ defmodule BeamConsole.Runtime.Supervision.State do
   transition explicit.
   """
 
-  alias BeamConsole.SupervisionEdge
   alias BeamConsole.Lifecycle.Observation
+  alias BeamConsole.SupervisionEdge
 
   defstruct edges: %{},
             attribution: %{},

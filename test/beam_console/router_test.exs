@@ -23,6 +23,9 @@ defmodule BeamConsole.RouterTest do
     paths = Enum.map(NestedRouter.__routes__(), & &1.path)
 
     assert "/dev/beam" in paths
+    assert "/dev/beam/lifecycle" in paths
+    assert "/dev/beam/activity" in paths
+    assert "/dev/beam/runtime" in paths
     assert "/dev/beam/assets/css/:digest" in paths
     assert "/dev/beam/assets/js/:digest" in paths
     assert "/dev/beam/assets/cytoscape/:digest" in paths
