@@ -1,6 +1,12 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.ConsoleLive do
-    @moduledoc false
+    @moduledoc """
+    Renders the live process map, searchable runtime tree, and safe inspector.
+
+    The LiveView subscribes to the shared collector and keeps entity selection
+    URL-backed so a process can remain inspectable as an observed tombstone
+    after it exits.
+    """
 
     use BeamConsoleWeb, :live_view
 
@@ -104,7 +110,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     @impl true
     def render(assigns) do
       ~H"""
-      <div id="beam-console" class="beam-console-shell">
+      <div id="beam-console" class="beam-console-shell" phx-hook="BeamConsoleTheme">
         <div class="beam-console-frame">
           <header class="beam-console-header">
             <div class="beam-console-brand">
@@ -162,10 +168,51 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 data-tooltip="Refresh sample"
               >
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M20 7v5h-5" />
-                  <path d="M19 12a7 7 0 1 1-2.05-4.95L20 10" />
+                  <path d="M20 7v5h-5M4 17v-5h5" />
+                  <path d="M18.4 9A7 7 0 0 0 6.2 6.8L4 9M5.6 15A7 7 0 0 0 17.8 17.2L20 15" />
                 </svg>
               </button>
+              <div
+                id="beam-console-theme-switcher"
+                class="beam-console-theme-switcher"
+                aria-label="Theme"
+              >
+                <button
+                  type="button"
+                  class="beam-console-theme-button"
+                  data-beam-console-theme="system"
+                  aria-label="Use system theme"
+                  title="Use system theme"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="13" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="beam-console-theme-button"
+                  data-beam-console-theme="light"
+                  aria-label="Use light theme"
+                  title="Use light theme"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3.5" />
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="beam-console-theme-button"
+                  data-beam-console-theme="dark"
+                  aria-label="Use dark theme"
+                  title="Use dark theme"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M20 15.2A8.2 8.2 0 0 1 8.8 4a8.2 8.2 0 1 0 11.2 11.2Z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </header>
 
@@ -180,38 +227,51 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
             <div :for={warning <- @coverage_warnings} class="beam-console-warning">{warning}</div>
 
-            <ul class="beam-console-list">
+            <ul id="beam-console-runtime-tree" class="beam-console-list" phx-hook="BeamConsoleTree">
               <li :for={runtime_node <- @nodes}>
-                <button
-                  id={"select-#{runtime_node.id}"}
-                  class={["beam-console-link", @selected_id == runtime_node.id && "is-selected"]}
-                  phx-click="select_entity"
-                  phx-value-id={runtime_node.id}
+                <details
+                  id={"tree-#{runtime_node.id}"}
+                  class="beam-console-tree-branch"
+                  open
                 >
-                  <span class="beam-console-link-label">
-                    <span class="beam-console-node-dot"></span>
-                    {runtime_node.name}
-                  </span>
-                  <span class="beam-console-count">
-                    {if(runtime_node.inspectable?, do: "local", else: "inventory")}
-                  </span>
-                </button>
+                  <summary
+                    id={"select-#{runtime_node.id}"}
+                    class={[
+                      "beam-console-link beam-console-tree-summary",
+                      @selected_id == runtime_node.id && "is-selected"
+                    ]}
+                    phx-click="select_entity"
+                    phx-value-id={runtime_node.id}
+                  >
+                    <span class="beam-console-link-label">
+                      <span class="beam-console-tree-caret" aria-hidden="true"></span>
+                      <span class="beam-console-node-dot"></span>
+                      {runtime_node.name}
+                    </span>
+                    <span class="beam-console-count">
+                      {if(runtime_node.inspectable?, do: "local", else: "inventory")}
+                    </span>
+                  </summary>
 
-                <ul :if={runtime_node.inspectable?}>
-                  <li :for={application <- @applications}>
-                    <button
-                      id={"select-#{application.id}"}
-                      class={["beam-console-link", @selected_id == application.id && "is-selected"]}
-                      phx-click="select_entity"
-                      phx-value-id={application.id}
-                    >
-                      <span class="beam-console-link-label">
-                        {application.name}
-                      </span>
-                      <span class="beam-console-count">app</span>
-                    </button>
-                  </li>
-                </ul>
+                  <ul :if={runtime_node.inspectable?}>
+                    <li :for={application <- @applications}>
+                      <button
+                        id={"select-#{application.id}"}
+                        class={[
+                          "beam-console-link",
+                          @selected_id == application.id && "is-selected"
+                        ]}
+                        phx-click="select_entity"
+                        phx-value-id={application.id}
+                      >
+                        <span class="beam-console-link-label">
+                          {application.name}
+                        </span>
+                        <span class="beam-console-count">app</span>
+                      </button>
+                    </li>
+                  </ul>
+                </details>
               </li>
             </ul>
           </aside>

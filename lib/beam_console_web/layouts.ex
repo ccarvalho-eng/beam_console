@@ -1,12 +1,15 @@
 if Code.ensure_loaded?(Phoenix.Component) do
   defmodule BeamConsoleWeb.Layouts do
-    @moduledoc false
+    @moduledoc """
+    Renders BeamConsole's isolated HTML document and digest-addressed assets.
+    """
 
     use Phoenix.Component
 
     alias BeamConsoleWeb.Assets
 
     @spec root(map()) :: Phoenix.LiveView.Rendered.t()
+    @doc "Renders the root layout for an embedded BeamConsole LiveView session."
     def root(assigns) do
       prefix = assigns[:prefix] || ""
 

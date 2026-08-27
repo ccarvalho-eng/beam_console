@@ -1,11 +1,14 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.Hooks do
-    @moduledoc false
+    @moduledoc """
+    Loads host-owned routing and transport settings into the embedded LiveView.
+    """
 
     import Phoenix.Component, only: [assign: 3]
 
     @spec on_mount(atom(), map(), map(), Phoenix.LiveView.Socket.t()) ::
             {:cont, Phoenix.LiveView.Socket.t()}
+    @doc "Initializes the route prefix, socket path, and transport from the signed session."
     def on_mount(:default, _params, session, socket) do
       socket =
         socket

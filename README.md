@@ -39,6 +39,12 @@ mix phx.server
 
 Then visit `/lab` for deterministic sample controls or `/beam` for BeamConsole.
 
+## Interface
+
+The console provides a stable process map, a collapsible runtime tree, process
+search, and an allowlisted inspector. The light/dark theme follows the system
+preference on first use and remembers an explicit selection in the browser.
+
 ## Current safety boundary
 
 BeamConsole does not fetch process messages, dictionaries, stacktraces, binaries, or arbitrary state. It does not use `:sys`, tracing, remote RPC, or process mutation.

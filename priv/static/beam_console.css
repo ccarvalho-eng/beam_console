@@ -32,6 +32,27 @@
   -webkit-font-smoothing: antialiased;
 }
 
+:root[data-beam-console-theme="dark"] .beam-console-body {
+  background: #09090b;
+}
+
+:root[data-beam-console-theme="dark"] .beam-console-shell {
+  --bc-bg: #09090b;
+  --bc-surface: #18181b;
+  --bc-surface-muted: #111113;
+  --bc-surface-raised: #27272a;
+  --bc-border: #27272a;
+  --bc-border-strong: #3f3f46;
+  --bc-text: #f4f4f5;
+  --bc-muted: #a1a1aa;
+  --bc-subtle: #71717a;
+  --bc-accent: #a78bfa;
+  --bc-accent-soft: #2e2442;
+  --bc-accent-border: #6d5a96;
+  --bc-success: #4ade80;
+  color-scheme: dark;
+}
+
 .beam-console-shell button,
 .beam-console-shell input {
   font: inherit;
@@ -224,6 +245,50 @@
   animation: beam-console-spin 800ms linear infinite;
 }
 
+.beam-console-theme-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  height: 36px;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 7px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-theme-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bc-subtle);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.beam-console-theme-button:hover {
+  color: var(--bc-text);
+}
+
+.beam-console-theme-button.is-active {
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bc-text), transparent 88%);
+}
+
+.beam-console-theme-button svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
 .beam-console-icon-button[data-tooltip]::after {
   position: absolute;
   top: calc(100% + 8px);
@@ -308,6 +373,29 @@
   margin: 0;
   padding: 10px;
   list-style: none;
+}
+
+.beam-console-tree-branch > summary {
+  list-style: none;
+}
+
+.beam-console-tree-branch > summary::-webkit-details-marker {
+  display: none;
+}
+
+.beam-console-tree-caret {
+  width: 0;
+  height: 0;
+  flex: 0 0 auto;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--bc-subtle);
+  transform-origin: 2px 4px;
+  transition: transform 120ms ease;
+}
+
+.beam-console-tree-branch[open] > summary .beam-console-tree-caret {
+  transform: rotate(90deg);
 }
 
 .beam-console-list ul {

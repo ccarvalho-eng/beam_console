@@ -1,0 +1,317 @@
+import { Socket, LongPoll } from "../phoenix/__PHOENIX_DIGEST__";
+import { LiveSocket } from "../live-view/__LIVE_VIEW_DIGEST__";
+import cytoscape from "../cytoscape/__CYTOSCAPE_DIGEST__";
+
+const script = document.querySelector("script[data-beam-console-client]");
+const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
+const livePath = script?.dataset.livePath || "/live";
+const transport = script?.dataset.liveTransport || "websocket";
+const themeStorageKey = "beam-console-theme";
+const themeModes = new Set(["system", "light", "dark"]);
+const systemThemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+const storedTheme = () => {
+  try {
+    const theme = window.localStorage.getItem(themeStorageKey);
+    return themeModes.has(theme) ? theme : null;
+  } catch (_error) {
+    return null;
+  }
+};
+
+const preferredTheme = () => storedTheme() || "system";
+const effectiveTheme = theme => theme === "system" ? (systemThemeQuery.matches ? "dark" : "light") : theme;
+
+const applyTheme = theme => {
+  const effective = effectiveTheme(theme);
+  document.documentElement.dataset.beamConsoleTheme = effective;
+  document.documentElement.dataset.beamConsoleThemeSource = theme;
+  window.dispatchEvent(new CustomEvent("beam-console-theme-change", { detail: { theme: effective, source: theme } }));
+};
+
+const persistTheme = theme => {
+  try {
+    if (theme === "system") window.localStorage.removeItem(themeStorageKey);
+    else window.localStorage.setItem(themeStorageKey, theme);
+  } catch (_error) {
+    // The theme still applies for this page when storage is unavailable.
+  }
+};
+
+const graphStyle = element => {
+  const computed = getComputedStyle(element);
+  const token = name => computed.getPropertyValue(name).trim();
+  const palette = {
+    surface: token("--bc-surface") || "#ffffff",
+    surfaceMuted: token("--bc-surface-muted") || "#fafafa",
+    surfaceRaised: token("--bc-surface-raised") || "#f4f4f5",
+    border: token("--bc-border") || "#e4e4e7",
+    borderStrong: token("--bc-border-strong") || "#d4d4d8",
+    text: token("--bc-text") || "#27272a",
+    muted: token("--bc-muted") || "#71717a",
+    accent: token("--bc-accent") || "#7c3aed",
+    accentSoft: token("--bc-accent-soft") || "#f5f3ff",
+    accentBorder: token("--bc-accent-border") || "#c4b5fd"
+  };
+
+  return [
+    { selector: "node", style: { width: 132, height: 32, shape: "round-rectangle", "background-color": palette.surface, "border-color": palette.borderStrong, "border-width": 1, label: "data(label)", color: palette.text, "font-size": 10, "font-weight": 500, "text-wrap": "ellipsis", "text-max-width": 112, "text-valign": "center", "text-halign": "center" } },
+    { selector: "node[kind = 'supervisor']", style: { "background-color": palette.accentSoft, "border-color": palette.accentBorder, "border-width": 1.5, "font-weight": 650 } },
+    { selector: "node[kind = 'application']", style: { width: 144, height: 36, "background-color": palette.surfaceRaised, "border-color": palette.borderStrong, "font-weight": 650 } },
+    { selector: "node[kind = 'node']", style: { width: 156, height: 38, "background-color": palette.text, "border-color": palette.text, color: palette.surface, "font-weight": 700 } },
+    { selector: "node:selected", style: { "background-color": palette.accent, "border-color": palette.accent, color: palette.surface, "border-width": 2 } },
+    { selector: "edge", style: { width: 1.25, "line-color": palette.borderStrong, "target-arrow-color": palette.borderStrong, "target-arrow-shape": "triangle", "arrow-scale": 0.7, "curve-style": "taxi", "taxi-direction": "downward", "taxi-turn": 18 } },
+    { selector: "edge[kind = 'contains'], edge[kind = 'owns']", style: { "line-style": "dashed", "line-color": palette.muted, "target-arrow-color": palette.muted } }
+  ];
+};
+
+applyTheme(preferredTheme());
+
+const BeamConsoleTheme = {
+  mounted() {
+    this.theme = preferredTheme();
+    this.selectTheme = event => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-beam-console-theme]")
+        : null;
+      const theme = button?.dataset.beamConsoleTheme;
+      if (!themeModes.has(theme)) return;
+      persistTheme(theme);
+      this.apply(theme);
+    };
+    this.systemChanged = () => {
+      if (this.theme === "system") this.apply("system");
+    };
+    this.storageChanged = event => {
+      if (event.key === themeStorageKey) this.apply(preferredTheme());
+    };
+    this.el.addEventListener("click", this.selectTheme);
+    systemThemeQuery.addEventListener("change", this.systemChanged);
+    window.addEventListener("storage", this.storageChanged);
+    this.apply(this.theme);
+  },
+  updated() {
+    this.apply(this.theme);
+  },
+  destroyed() {
+    this.el.removeEventListener("click", this.selectTheme);
+    systemThemeQuery.removeEventListener("change", this.systemChanged);
+    window.removeEventListener("storage", this.storageChanged);
+  },
+  apply(theme) {
+    this.theme = themeModes.has(theme) ? theme : "system";
+    applyTheme(this.theme);
+    this.el.querySelectorAll("[data-beam-console-theme]").forEach(button => {
+      const active = button.dataset.beamConsoleTheme === this.theme;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+};
+
+const BeamConsoleTree = {
+  mounted() {
+    this.closed = new Set();
+    this.bindings = [];
+    this.applyState();
+    this.bindBranches();
+  },
+  updated() {
+    this.unbindBranches();
+    this.applyState();
+    this.bindBranches();
+  },
+  destroyed() {
+    this.unbindBranches();
+    if (this.applyFrame) window.cancelAnimationFrame(this.applyFrame);
+  },
+  applyState() {
+    this.applying = true;
+    this.el.querySelectorAll("details[id]").forEach(branch => {
+      branch.open = !this.closed.has(branch.id);
+    });
+    if (this.applyFrame) window.cancelAnimationFrame(this.applyFrame);
+    this.applyFrame = window.requestAnimationFrame(() => { this.applying = false; });
+  },
+  bindBranches() {
+    this.bindings = Array.from(this.el.querySelectorAll("details[id]"), branch => {
+      const onToggle = () => {
+        if (this.applying) return;
+        if (branch.open) this.closed.delete(branch.id);
+        else this.closed.add(branch.id);
+      };
+      branch.addEventListener("toggle", onToggle);
+      return { branch, onToggle };
+    });
+  },
+  unbindBranches() {
+    this.bindings.forEach(({ branch, onToggle }) => branch.removeEventListener("toggle", onToggle));
+    this.bindings = [];
+  }
+};
+
+const BeamConsoleGraph = {
+  mounted() {
+    this.sequence = 0;
+    this.focus = null;
+    this.topologySignature = null;
+    this.fitPending = false;
+    this.fitFrame = null;
+    this.themeChanged = () => this.cy?.style(graphStyle(this.el));
+    window.addEventListener("beam-console-theme-change", this.themeChanged);
+    this.cy = cytoscape({
+      container: this.el,
+      elements: [],
+      style: graphStyle(this.el)
+    });
+
+    this.cy.on("tap", "node", event => this.pushEvent("select_entity", { id: event.target.id() }));
+    this.resizeObserver = new ResizeObserver(() => {
+      this.cy?.resize();
+      if (this.fitPending) this.scheduleFit();
+    });
+    this.resizeObserver.observe(this.el);
+    this.handleEvent("beam_console_graph", payload => this.replaceGraph(payload));
+    this.pushEvent("request_graph", {});
+  },
+  destroyed() {
+    window.removeEventListener("beam-console-theme-change", this.themeChanged);
+    this.resizeObserver?.disconnect();
+    if (this.fitFrame) window.cancelAnimationFrame(this.fitFrame);
+    if (this.cy) this.cy.destroy();
+  },
+  replaceGraph(payload) {
+    if (!this.cy || !payload || payload.sequence < this.sequence) return;
+    const elements = payload.elements || [];
+    const topologySignature = JSON.stringify(elements.map(element => {
+      const data = element.data || {};
+      return [data.id, data.source || null, data.target || null, data.kind || null];
+    }));
+    const focusChanged = this.focus !== payload.focus;
+
+    if (topologySignature === this.topologySignature) {
+      this.updateElementData(elements);
+      this.updateSelection(payload.selected);
+      this.sequence = payload.sequence;
+      this.focus = payload.focus;
+      return;
+    }
+
+    if (this.sequence > 0 && !focusChanged && !this.requiresRelayout(elements)) {
+      this.patchTopology(elements);
+    } else {
+      this.layoutGraph(elements);
+    }
+
+    this.updateSelection(payload.selected);
+    this.sequence = payload.sequence;
+    this.focus = payload.focus;
+    this.topologySignature = topologySignature;
+  },
+  requiresRelayout(elements) {
+    const incoming = new Set(elements.filter(element => !element.data.source).map(element => element.data.id));
+    const current = new Set(this.cy.nodes().map(node => node.id()));
+    const changed = [...incoming].filter(id => !current.has(id)).length +
+      [...current].filter(id => !incoming.has(id)).length;
+    const baseline = Math.max(incoming.size, current.size, 1);
+    return changed >= 8 && changed / baseline >= 0.25;
+  },
+  layoutGraph(elements) {
+    this.cy.elements().remove();
+    this.cy.add(elements);
+    this.cy.resize();
+    this.cy.layout({ name: "breadthfirst", directed: true, animate: false, fit: false, padding: 44, spacingFactor: 1.1 }).run();
+    this.requestFit();
+  },
+  requestFit() {
+    this.fitPending = true;
+    this.fitState = { width: 0, height: 0, stableFrames: 0 };
+    this.scheduleFit();
+  },
+  scheduleFit() {
+    if (!this.fitPending || this.fitFrame) return;
+    this.fitFrame = window.requestAnimationFrame(() => {
+      this.fitFrame = null;
+      const width = Math.round(this.el.clientWidth);
+      const height = Math.round(this.el.clientHeight);
+      if (width < 2 || height < 2) return;
+
+      const unchanged = width === this.fitState.width && height === this.fitState.height;
+      this.fitState = {
+        width,
+        height,
+        stableFrames: unchanged ? this.fitState.stableFrames + 1 : 0
+      };
+
+      if (this.fitState.stableFrames < 2) {
+        this.scheduleFit();
+        return;
+      }
+
+      this.cy.resize();
+      this.cy.fit(undefined, 36);
+      this.cy.zoom(Math.max(this.cy.zoom(), 0.45));
+      this.cy.center();
+      this.fitPending = false;
+    });
+  },
+  updateElementData(elements) {
+    elements.forEach(element => {
+      const existing = this.cy.$id(element.data.id);
+      if (existing.length) existing.data(element.data);
+    });
+  },
+  updateSelection(selected) {
+    this.cy.nodes().unselect();
+    if (selected) this.cy.$id(selected).select();
+  },
+  patchTopology(elements) {
+    const incomingIds = new Set(elements.map(element => element.data.id));
+    this.cy.elements().filter(element => !incomingIds.has(element.id())).remove();
+
+    const nodes = elements.filter(element => !element.data.source);
+    const edges = elements.filter(element => element.data.source);
+    const newNodeIds = [];
+
+    nodes.forEach(element => {
+      const existing = this.cy.$id(element.data.id);
+
+      if (existing.length) {
+        existing.data(element.data);
+      } else {
+        this.cy.add(element);
+        newNodeIds.push(element.data.id);
+      }
+    });
+
+    edges.forEach(element => {
+      const existing = this.cy.$id(element.data.id);
+      if (existing.length) existing.data(element.data);
+      else this.cy.add(element);
+    });
+
+    newNodeIds.forEach((nodeId, index) => {
+      const node = this.cy.$id(nodeId);
+      const incoming = edges.find(edge => edge.data.target === nodeId);
+      const parent = incoming && this.cy.$id(incoming.data.source);
+
+      if (parent && parent.length) {
+        const position = parent.position();
+        const offset = (index % 5 - 2) * 148;
+        node.position({ x: position.x + offset, y: position.y + 94 });
+      } else {
+        const extent = this.cy.extent();
+        node.position({ x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 });
+      }
+    });
+  }
+};
+
+const socketOptions = {
+  params: { _csrf_token: csrfToken },
+  hooks: { BeamConsoleGraph, BeamConsoleTheme, BeamConsoleTree }
+};
+if (transport === "longpoll") socketOptions.transport = LongPoll;
+const liveSocket = new LiveSocket(livePath, Socket, socketOptions);
+liveSocket.connect();
+window.beamConsoleLiveSocket = liveSocket;

@@ -2,7 +2,7 @@
   "name": "beam-console-assets",
   "private": true,
   "scripts": {
-    "check": "node --check ../priv/static/cytoscape.esm.min.mjs"
+    "check": "node --check ../priv/static/beam_console.mjs && node --check ../priv/static/cytoscape.esm.min.mjs"
   },
   "dependencies": {
     "cytoscape": "^3.33.1"

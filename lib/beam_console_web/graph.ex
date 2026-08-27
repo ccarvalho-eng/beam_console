@@ -1,12 +1,18 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.Graph do
-    @moduledoc false
+    @moduledoc """
+    Converts normalized runtime snapshots into bounded Cytoscape graph data.
+
+    The payload keeps browser-facing values scalar and limits the visible
+    process count so large runtimes remain navigable.
+    """
 
     alias BeamConsole.Snapshot
 
     @process_limit 160
 
     @spec default_focus_id(Snapshot.t()) :: String.t() | nil
+    @doc "Returns the application ID with the largest observed supervision tree."
     def default_focus_id(%Snapshot{} = snapshot) do
       case largest_supervision_application(snapshot) do
         nil -> nil
@@ -15,6 +21,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     @spec payload(Snapshot.t(), String.t() | nil, String.t() | nil) :: map()
+    @doc "Builds a bounded graph payload around the selected or focused application."
     def payload(%Snapshot{} = snapshot, selected_id, focus_id \\ nil) do
       local_node = Map.fetch!(snapshot.nodes, snapshot.local_node_id)
       focus_application = focus_application(snapshot, selected_id, focus_id)

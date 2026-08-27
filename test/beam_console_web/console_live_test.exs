@@ -28,10 +28,32 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
   test "renders the accessible console shell through the embedded route" do
     {:ok, view, _html} = live(build_conn(), "/beam")
 
-    assert has_element?(view, "#beam-console")
+    assert has_element?(view, "#beam-console[phx-hook='BeamConsoleTheme']")
     assert has_element?(view, "#beam-console-graph[phx-hook='BeamConsoleGraph']")
+
+    assert has_element?(
+             view,
+             "#beam-console-runtime-tree[phx-hook='BeamConsoleTree'] details[open]"
+           )
+
     assert has_element?(view, "#beam-console-search")
     assert has_element?(view, "#beam-console-refresh[aria-label='Refresh runtime sample'] svg")
+
+    assert has_element?(
+             view,
+             "#beam-console-refresh + #beam-console-theme-switcher button[data-beam-console-theme='system']"
+           )
+
+    assert has_element?(
+             view,
+             "button[data-beam-console-theme='light'][aria-label='Use light theme']"
+           )
+
+    assert has_element?(
+             view,
+             "button[data-beam-console-theme='dark'][aria-label='Use dark theme']"
+           )
+
     assert has_element?(view, "#beam-console-detail-empty")
   end
 
