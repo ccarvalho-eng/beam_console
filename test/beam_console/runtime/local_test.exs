@@ -10,6 +10,7 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.nodes[snapshot.local_node_id].inspectable?
     assert snapshot.coverage.total_pids >= snapshot.coverage.inspected_pids
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.pid == self() end)
+    refute Enum.any?(snapshot.processes, fn {_id, process} -> process.label == "nil" end)
   end
 
   test "rejects details for a process absent from the snapshot" do

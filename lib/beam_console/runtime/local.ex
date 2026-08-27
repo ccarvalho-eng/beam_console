@@ -1,5 +1,10 @@
 defmodule BeamConsole.Runtime.Local do
-  @moduledoc false
+  @moduledoc """
+  Collects bounded topology and process details from the local BEAM node.
+
+  The adapter uses standard OTP/runtime APIs and normalizes their results into
+  safe BeamConsole structs. Connected nodes are listed but are not queried.
+  """
 
   @behaviour BeamConsole.Runtime.Adapter
 
@@ -10,8 +15,8 @@ defmodule BeamConsole.Runtime.Local do
   alias BeamConsole.NodeInfo
   alias BeamConsole.ProcessDetail
   alias BeamConsole.ProcessInfo
+  alias BeamConsole.Runtime.Supervision
   alias BeamConsole.Snapshot
-  alias BeamConsole.SupervisionEdge
 
   @process_fields [
     :registered_name,
@@ -42,7 +47,7 @@ defmodule BeamConsole.Runtime.Local do
     {applications, roots} = collect_applications(local_node, local_node_id)
 
     {edges, supervision_attribution, partial_supervisors, traversal_limit_reached?} =
-      collect_supervision(roots, local_node, options)
+      Supervision.collect(roots, local_node, options)
 
     processes = apply_supervision_attribution(processes, supervision_attribution)
     completed_at = System.monotonic_time(:millisecond)
@@ -79,6 +84,12 @@ defmodule BeamConsole.Runtime.Local do
 
   @spec detail(pid(), Snapshot.t(), keyword()) ::
           {:ok, ProcessDetail.t()} | {:error, :unavailable}
+  @doc """
+  Returns allowlisted details for a local process present in the snapshot.
+
+  The call returns `{:error, :unavailable}` when the PID is remote, has exited,
+  or no longer matches a process in the supplied snapshot.
+  """
   def detail(pid, snapshot, options \\ []) when is_pid(pid) do
     with true <- node(pid) == node(),
          values when is_list(values) <- Process.info(pid, @detail_fields),
@@ -184,165 +195,6 @@ defmodule BeamConsole.Runtime.Local do
     end)
   end
 
-  defp collect_supervision(roots, local_node, options) do
-    queue = Enum.map(roots, fn {application, pid} -> {application, pid, 0} end)
-    supervisor_limit = Config.get(options, :supervisor_limit)
-    children_limit = Config.get(options, :children_limit)
-    depth_limit = Config.get(options, :topology_depth)
-
-    initial = {%{}, %{}, MapSet.new(), 0, 0, false}
-
-    {edges, attribution, _visited, partial, _children, reached_limit} =
-      walk_supervisors(
-        queue,
-        initial,
-        local_node,
-        options,
-        supervisor_limit,
-        children_limit,
-        depth_limit
-      )
-
-    {edges, attribution, partial, reached_limit}
-  end
-
-  defp walk_supervisors(
-         [],
-         state,
-         _node,
-         _options,
-         _supervisor_limit,
-         _children_limit,
-         _depth_limit
-       ) do
-    state
-  end
-
-  defp walk_supervisors(
-         [{application, supervisor, depth} | rest],
-         {edges, attribution, visited, partial, children, reached_limit},
-         local_node,
-         options,
-         supervisor_limit,
-         children_limit,
-         depth_limit
-       ) do
-    cond do
-      children >= children_limit ->
-        {edges, attribution, visited, partial, children, true}
-
-      depth > depth_limit or MapSet.size(visited) >= supervisor_limit ->
-        walk_supervisors(
-          rest,
-          {edges, attribution, visited, partial, children, true},
-          local_node,
-          options,
-          supervisor_limit,
-          children_limit,
-          depth_limit
-        )
-
-      MapSet.member?(visited, supervisor) ->
-        walk_supervisors(
-          rest,
-          {edges, attribution, visited, partial, children, reached_limit},
-          local_node,
-          options,
-          supervisor_limit,
-          children_limit,
-          depth_limit
-        )
-
-      true ->
-        visited = MapSet.put(visited, supervisor)
-
-        case which_children(supervisor, options) do
-          {:ok, supervisor_children} ->
-            {next_edges, next_attribution, additions, child_count} =
-              normalize_children(supervisor_children, application, supervisor, local_node, depth)
-
-            walk_supervisors(
-              rest ++ additions,
-              {
-                Map.merge(edges, next_edges),
-                Map.merge(attribution, next_attribution),
-                visited,
-                partial,
-                children + child_count,
-                reached_limit or children + child_count > children_limit
-              },
-              local_node,
-              options,
-              supervisor_limit,
-              children_limit,
-              depth_limit
-            )
-
-          {:error, _reason} ->
-            walk_supervisors(
-              rest,
-              {edges, attribution, visited, partial + 1, children, reached_limit},
-              local_node,
-              options,
-              supervisor_limit,
-              children_limit,
-              depth_limit
-            )
-        end
-    end
-  end
-
-  defp normalize_children(children, application, parent, local_node, depth) do
-    parent_id = EntityId.build(:process, {local_node, parent})
-
-    Enum.reduce(children, {%{}, %{}, [], 0}, fn {child_key, child, type, _modules},
-                                                {edges, attribution, additions, count} ->
-      edge_id = EntityId.build(:edge, {local_node, parent, child_key})
-      child_id = if is_pid(child), do: EntityId.build(:process, {local_node, child}), else: nil
-
-      edge = %SupervisionEdge{
-        id: edge_id,
-        parent_id: parent_id,
-        child_id: child_id,
-        label: EntityId.label(child_key),
-        state: child_state(child),
-        child_type: type
-      }
-
-      attribution =
-        if child_id do
-          Map.put(attribution, child_id, application)
-        else
-          attribution
-        end
-
-      additions =
-        if type == :supervisor and is_pid(child) do
-          [{application, child, depth + 1} | additions]
-        else
-          additions
-        end
-
-      {Map.put(edges, edge_id, edge), attribution, additions, count + 1}
-    end)
-  end
-
-  defp which_children(supervisor, options) do
-    timeout = Config.get(options, :supervisor_timeout)
-
-    task =
-      Task.Supervisor.async_nolink(BeamConsole.TaskSupervisor, fn ->
-        Supervisor.which_children(supervisor)
-      end)
-
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, children} when is_list(children) -> {:ok, children}
-      {:exit, reason} -> {:error, reason}
-      nil -> {:error, :timeout}
-      _other -> {:error, :invalid_children}
-    end
-  end
-
   defp apply_supervision_attribution(processes, attribution) do
     Map.new(processes, fn {id, process} ->
       supervision_application = Map.get(attribution, id)
@@ -421,7 +273,7 @@ defmodule BeamConsole.Runtime.Local do
     nil
   end
 
-  defp process_label(name, _module, _pid) when is_atom(name) do
+  defp process_label(name, _module, _pid) when is_atom(name) and not is_nil(name) do
     Atom.to_string(name)
   end
 
@@ -431,22 +283,6 @@ defmodule BeamConsole.Runtime.Local do
 
   defp process_label(nil, nil, pid) do
     EntityId.label(pid)
-  end
-
-  defp child_state(child) when is_pid(child) do
-    :running
-  end
-
-  defp child_state(:restarting) do
-    :restarting
-  end
-
-  defp child_state(:undefined) do
-    :undefined
-  end
-
-  defp child_state(_child) do
-    :missing
   end
 
   defp safe_string(value) when is_binary(value) do
