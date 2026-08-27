@@ -107,7 +107,6 @@
   border-radius: 8px;
   background: var(--bc-surface-muted);
   color: var(--bc-accent);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7);
 }
 
 .beam-console-mark svg {
@@ -868,10 +867,6 @@
     --bc-accent-border: #6f5c9f;
     --bc-success: #7fba75;
     color-scheme: dark;
-  }
-
-  .beam-console-mark {
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
 
   .beam-console-warning {
