@@ -12,6 +12,9 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.runtime_sample.process_count == map_size(snapshot.processes)
     assert snapshot.runtime_sample.application_count == map_size(snapshot.applications)
     assert snapshot.runtime_sample.ets_count >= 0
+    assert snapshot.runtime_sample.atom_count == :erlang.system_info(:atom_count)
+    assert snapshot.runtime_sample.atom_limit == :erlang.system_info(:atom_limit)
+    assert snapshot.runtime_sample.atom_count <= snapshot.runtime_sample.atom_limit
     assert snapshot.runtime_sample.memory_total > 0
     assert snapshot.runtime_sample.scheduler_count > 0
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.pid == self() end)

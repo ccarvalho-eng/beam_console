@@ -631,6 +631,9 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         supervisor_count: 0,
         ets_count: 0,
         run_queue: nil,
+        atom_count: nil,
+        atom_limit: nil,
+        atom_utilization: nil,
         collector_partial?: false,
         omitted: 0
       }

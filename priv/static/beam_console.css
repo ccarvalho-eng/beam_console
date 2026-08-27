@@ -840,6 +840,10 @@
   background: var(--bc-border);
 }
 
+.beam-console-runtime-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 .beam-console-recorder-summary div {
   padding: 12px 15px;
   background: var(--bc-surface-muted);
@@ -861,6 +865,14 @@
 .beam-console-recorder-summary strong {
   margin-top: 4px;
   font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.beam-console-recorder-summary small {
+  display: block;
+  margin-top: 2px;
+  color: var(--bc-muted);
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1170,6 +1182,10 @@
   border: 1px solid var(--bc-border);
   border-radius: 8px;
   background: var(--bc-surface);
+}
+
+.beam-console-chart-card[data-chart-id="runtime-atoms"] {
+  grid-column: 1 / -1;
 }
 
 .beam-console-chart-card figcaption {

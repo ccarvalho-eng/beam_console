@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 - 2026-08-27
+
+- Add atom count, atom limit, and utilization to the Runtime summary.
+- Add bounded atom-table utilization history to the Runtime charts.
+
 ## 0.1.1 - 2026-08-27
 
 - Add CI, security, Hex, HexDocs, and license badges to the project README.

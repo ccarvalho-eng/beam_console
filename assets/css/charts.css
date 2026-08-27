@@ -14,6 +14,10 @@
   background: var(--bc-surface);
 }
 
+.beam-console-chart-card[data-chart-id="runtime-atoms"] {
+  grid-column: 1 / -1;
+}
+
 .beam-console-chart-card figcaption {
   display: flex;
   min-height: 28px;
@@ -118,4 +122,3 @@
 .beam-console-mover-row b {
   font-variant-numeric: tabular-nums;
 }
-

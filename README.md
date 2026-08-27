@@ -15,7 +15,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.1.1"}
+    {:beam_console, "~> 0.2.0"}
   ]
 end
 ```
@@ -62,7 +62,7 @@ Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer n
 - Process Map: a stable, focused supervision graph with optional process links and monitors, plus a searchable process explorer.
 - Lifecycle: observed process starts, terminations, and replacement correlations with explicit evidence and coverage language.
 - Activity: reductions per second, mailbox growth, memory movement, and ranked process movers.
-- Runtime: BEAM memory categories, run queue, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
+- Runtime: BEAM memory categories, run queue, atom count and utilization, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
 - Inspector: allowlisted process, application, and node details. Process relationships are clickable when their target is present in the latest sample.
 
 Applications are grouped into host, dependencies, OTP, and tooling categories. Every tree branch can be collapsed and its state remains stable while LiveView updates.

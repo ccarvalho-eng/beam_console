@@ -77,9 +77,21 @@ if Code.ensure_loaded?(Phoenix.Component) do
             </div>
           </div>
 
-          <div class="beam-console-recorder-summary">
+          <div class="beam-console-recorder-summary beam-console-runtime-summary">
             <div><span>Processes</span><strong>{@summary.process_count}</strong></div>
             <div><span>Supervisors</span><strong>{@summary.supervisor_count}</strong></div>
+            <div
+              id="beam-console-atom-usage"
+              role="group"
+              aria-labelledby="beam-console-atom-label"
+              aria-describedby="beam-console-atom-description"
+            >
+              <span id="beam-console-atom-label">Atoms</span>
+              <strong>{format_optional_number(@summary.atom_count)}</strong>
+              <small id="beam-console-atom-description">
+                {atom_capacity(@summary.atom_limit, @summary.atom_utilization)}. Atoms persist for the VM lifetime.
+              </small>
+            </div>
             <div><span>ETS tables</span><strong>{@summary.ets_count}</strong></div>
             <div><span>Run queue</span><strong>{@summary.run_queue || "—"}</strong></div>
           </div>
@@ -90,7 +102,13 @@ if Code.ensure_loaded?(Phoenix.Component) do
             </div>
             <.chart_grid
               :if={@has_samples?}
-              ids={["runtime-memory", "runtime-run-queue", "runtime-counts", "runtime-scan"]}
+              ids={[
+                "runtime-memory",
+                "runtime-run-queue",
+                "runtime-counts",
+                "runtime-scan",
+                "runtime-atoms"
+              ]}
               hook_id="beam-console-runtime-charts"
             />
 
@@ -135,6 +153,44 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
     defp format_number(value) do
       to_string(value || 0)
+    end
+
+    defp format_optional_number(nil) do
+      "—"
+    end
+
+    defp format_optional_number(value) do
+      format_integer(value)
+    end
+
+    defp atom_capacity(limit, utilization)
+         when is_integer(limit) and is_number(utilization) do
+      "of #{format_integer(limit)} · #{format_percentage(utilization)} used"
+    end
+
+    defp atom_capacity(_limit, _utilization) do
+      "Limit unavailable"
+    end
+
+    defp format_percentage(value) do
+      value
+      |> Float.round(2)
+      |> :erlang.float_to_binary(decimals: 2)
+      |> Kernel.<>("%")
+    end
+
+    defp format_integer(value) when is_integer(value) and value >= 0 do
+      value
+      |> Integer.to_string()
+      |> String.reverse()
+      |> String.graphemes()
+      |> Enum.chunk_every(3)
+      |> Enum.map_join(",", &Enum.join/1)
+      |> String.reverse()
+    end
+
+    defp format_integer(value) do
+      to_string(value)
     end
 
     defp signed(value) when is_number(value) and value > 0 do

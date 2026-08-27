@@ -54,6 +54,33 @@ export const chartHeadline = (series, unit, formatter) => {
   return formatter(series[0].points.at(-1)[1], unit);
 };
 
+export const formatChartValue = (value, unit) => {
+  if (!Number.isFinite(value)) return "—";
+  if (unit === "bytes") {
+    const absolute = Math.abs(value);
+    if (absolute >= 1048576) return `${(value / 1048576).toFixed(1)} MB`;
+    if (absolute >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${Math.round(value)} B`;
+  }
+  if (unit === "reductions/s") return `${Math.round(value).toLocaleString()} /s`;
+  if (unit === "ms") return `${Math.round(value)} ms`;
+  if (unit === "%") return `${value.toFixed(1)}%`;
+  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1);
+};
+
+export const chartDomain = (values, minimum, maximum) => {
+  let lower = Number.isFinite(minimum) ? minimum : Math.min(...values);
+  let upper = Number.isFinite(maximum) ? maximum : Math.max(...values);
+
+  if (lower === upper) {
+    const padding = Math.max(Math.abs(lower) * 0.08, 1);
+    lower -= padding;
+    upper += padding;
+  }
+
+  return [lower, upper];
+};
+
 export const chartAriaLabel = title => `${title || "History"} history chart`;
 
 export const graphOmissionLabel = (processCount, relationshipCount) => {
