@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 - 2026-08-27
+
+- Add CI, security, Hex, HexDocs, and license badges to the project README.
+- Update the installation example for the 0.1.1 release.
+
 ## 0.1.0 - 2026-08-27
 
 - Add an embeddable Phoenix LiveView process map and collapsible runtime tree.

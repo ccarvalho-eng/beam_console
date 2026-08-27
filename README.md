@@ -1,5 +1,11 @@
 # BeamConsole
 
+[![CI](https://github.com/ccarvalho-eng/beam_console/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ccarvalho-eng/beam_console/actions/workflows/ci.yml)
+[![Security](https://github.com/ccarvalho-eng/beam_console/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/ccarvalho-eng/beam_console/actions/workflows/security.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/beam_console.svg)](https://hex.pm/packages/beam_console)
+[![HexDocs](https://img.shields.io/badge/hex-docs-714a9f.svg)](https://hexdocs.pm/beam_console)
+[![License](https://img.shields.io/hexpm/l/beam_console.svg)](https://github.com/ccarvalho-eng/beam_console/blob/main/LICENSE)
+
 BeamConsole is an embeddable, read-only process flight recorder and process map for Phoenix and BEAM applications. It makes supervision, process relationships, lifecycle changes, per-process activity, and node-wide runtime health visible without application-specific instrumentation.
 
 ## Installation
@@ -9,7 +15,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.1.0"}
+    {:beam_console, "~> 0.1.1"}
   ]
 end
 ```
