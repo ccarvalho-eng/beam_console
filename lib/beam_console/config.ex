@@ -6,6 +6,8 @@ defmodule BeamConsole.Config do
   limits.
   """
 
+  alias BeamConsole.Recorder.Config, as: RecorderConfig
+
   @defaults [
     interval: 2_000,
     scan_timeout: 1_500,
@@ -28,5 +30,11 @@ defmodule BeamConsole.Config do
   @doc "Returns an explicit option value or the corresponding default."
   def get(options, key) do
     Keyword.get(options, key, Keyword.fetch!(@defaults, key))
+  end
+
+  @spec recorder(keyword()) :: RecorderConfig.t()
+  @doc "Loads validated flight-recorder configuration with optional runtime overrides."
+  def recorder(overrides \\ []) do
+    RecorderConfig.load(overrides)
   end
 end

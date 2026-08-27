@@ -6,7 +6,14 @@ defmodule BeamConsole.EntityId do
   avoid accepting encoded Erlang terms back from clients.
   """
 
-  @prefixes %{application: "app", edge: "edge", node: "node", process: "proc"}
+  @prefixes %{
+    application: "app",
+    edge: "edge",
+    event: "event",
+    node: "node",
+    process: "proc",
+    slot: "slot"
+  }
 
   @spec build(atom(), term()) :: String.t()
   @doc """
