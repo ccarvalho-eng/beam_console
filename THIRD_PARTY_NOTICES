@@ -1,0 +1,4 @@
+BeamConsole's browser graph uses Cytoscape.js, licensed under the MIT License.
+
+The bundled artifact is built from Cytoscape.js 3.33.x. The complete license
+text is included at `priv/static/CYTOSCAPE_LICENSE`.
