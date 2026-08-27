@@ -10,6 +10,7 @@ _build/
 
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
+/priv/plts/
 
 # Temporary files, for example, from tests.
 /tmp/

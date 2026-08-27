@@ -1,6 +1,8 @@
 defmodule BeamConsoleTest do
   use ExUnit.Case
 
+  doctest BeamConsole.EntityId
+
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
   alias BeamConsole.ProcessInfo

@@ -1,9 +1,25 @@
 defmodule BeamConsole.EntityId do
-  @moduledoc false
+  @moduledoc """
+  Builds stable, opaque identifiers and bounded labels for runtime entities.
+
+  IDs are safe to place in URLs and browser DOM attributes. They deliberately
+  avoid accepting encoded Erlang terms back from clients.
+  """
 
   @prefixes %{application: "app", edge: "edge", node: "node", process: "proc"}
 
   @spec build(atom(), term()) :: String.t()
+  @doc """
+  Builds a deterministic, kind-prefixed identifier from an Erlang term.
+
+  ## Examples
+
+      iex> id = BeamConsole.EntityId.build(:application, :logger)
+      iex> String.starts_with?(id, "app_")
+      true
+      iex> id == BeamConsole.EntityId.build(:application, :logger)
+      true
+  """
   def build(kind, identity) when is_map_key(@prefixes, kind) do
     digest =
       identity
@@ -15,6 +31,20 @@ defmodule BeamConsole.EntityId do
   end
 
   @spec label(term(), non_neg_integer()) :: String.t()
+  @doc """
+  Converts a safe runtime value into a bounded display label.
+
+  Values outside the allowlisted scalar types are rendered as opaque children.
+
+  ## Examples
+
+      iex> BeamConsole.EntityId.label(:worker)
+      "worker"
+      iex> BeamConsole.EntityId.label("abcdefgh", 4)
+      "abcd…"
+      iex> BeamConsole.EntityId.label({:private, :term})
+      "opaque child"
+  """
   def label(value, limit \\ 96)
 
   def label(value, limit) when is_binary(value) do

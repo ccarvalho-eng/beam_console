@@ -1,0 +1,39 @@
+name: Setup Elixir
+description: Install the BEAM toolchain and restore project build caches.
+
+inputs:
+  elixir-version:
+    description: Elixir version to install.
+    required: true
+  otp-version:
+    description: Erlang/OTP version to install.
+    required: true
+  cache-suffix:
+    description: Cache namespace for the calling job.
+    required: false
+    default: default
+
+runs:
+  using: composite
+  steps:
+    - name: Install Elixir and Erlang
+      uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+      with:
+        elixir-version: ${{ inputs.elixir-version }}
+        otp-version: ${{ inputs.otp-version }}
+
+    - name: Restore Mix cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          deps
+          _build
+          priv/plts
+        key: ${{ runner.os }}-mix-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-${{ inputs.cache-suffix }}-${{ hashFiles('mix.lock') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-mix-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-${{ inputs.cache-suffix }}-${{ hashFiles('mix.lock') }}-
+          ${{ runner.os }}-mix-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-${{ inputs.cache-suffix }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: mix deps.get

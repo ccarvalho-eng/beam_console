@@ -1,7 +1,10 @@
 defmodule BeamConsole.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
-  @moduledoc false
+  @moduledoc """
+  Starts the shared runtime collector and its bounded scan task supervisor.
+
+  Applications normally start this module through BeamConsole's OTP application
+  specification rather than calling it directly.
+  """
 
   use Application
 
@@ -12,8 +15,6 @@ defmodule BeamConsole.Application do
       BeamConsole.Collector
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     Supervisor.start_link(children, strategy: :one_for_one, name: BeamConsole.Supervisor)
   end
 end

@@ -1,5 +1,10 @@
 defmodule BeamConsole.Diff do
-  @moduledoc false
+  @moduledoc """
+  Describes bounded differences between two sampled runtime snapshots.
+
+  Lifecycle fields use `observed_` terminology because short-lived changes can
+  occur between samples and are not guaranteed to be lossless.
+  """
 
   alias BeamConsole.Snapshot
 
@@ -13,9 +18,26 @@ defmodule BeamConsole.Diff do
             edge_removed: [],
             omitted: 0
 
-  @type t :: %__MODULE__{}
+  @type entity_id :: String.t()
+  @type t :: %__MODULE__{
+          from_sequence: non_neg_integer(),
+          to_sequence: non_neg_integer(),
+          observed_started: [entity_id()],
+          observed_stopped: [entity_id()],
+          changed: [entity_id()],
+          edge_added: [entity_id()],
+          edge_removed: [entity_id()],
+          omitted: non_neg_integer()
+        }
 
   @spec between(Snapshot.t() | nil, Snapshot.t(), non_neg_integer()) :: t()
+  @doc """
+  Computes a bounded difference from one snapshot to the next.
+
+  Passing `nil` as the previous snapshot reports current processes as observed
+  starts. Once the event limit is reached, remaining records are counted in
+  `omitted`.
+  """
   def between(previous, current, limit \\ 500)
 
   def between(nil, %Snapshot{} = current, limit) do

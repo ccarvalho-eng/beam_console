@@ -1,5 +1,11 @@
 defmodule BeamConsole.Collector do
-  @moduledoc false
+  @moduledoc """
+  Owns a shared, bounded, non-overlapping runtime sampling loop.
+
+  The collector remains idle without subscribers, runs scans outside its own
+  mailbox, retains the last completed snapshot, and emits sampled diffs to each
+  monitored subscriber.
+  """
 
   use GenServer
 
@@ -25,35 +31,61 @@ defmodule BeamConsole.Collector do
             pending_refresh?: false,
             last_error: nil
 
-  @type state :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          name: GenServer.name() | nil,
+          runtime: module(),
+          runtime_options: keyword(),
+          task_supervisor: Supervisor.supervisor(),
+          interval: non_neg_integer(),
+          scan_timeout: non_neg_integer(),
+          diff_limit: non_neg_integer(),
+          sequence: non_neg_integer(),
+          snapshot: BeamConsole.Snapshot.t() | nil,
+          previous_snapshot: BeamConsole.Snapshot.t() | nil,
+          diff: Diff.t() | nil,
+          subscribers: %{pid() => reference()},
+          scan: Task.t() | nil,
+          scan_timeout_ref: reference() | nil,
+          tick_ref: reference() | nil,
+          pending_refresh?: boolean(),
+          last_error: term()
+        }
+
+  @type state :: t()
 
   @spec start_link(keyword()) :: GenServer.on_start()
+  @doc "Starts a collector with optional runtime, interval, and limit overrides."
   def start_link(options) do
     name = Keyword.get(options, :name, __MODULE__)
     GenServer.start_link(__MODULE__, Keyword.put(options, :name, name), name: name)
   end
 
   @spec subscribe(GenServer.server()) :: {:ok, BeamConsole.Snapshot.t() | nil}
+  @doc "Subscribes the caller and starts sampling when it is the first subscriber."
   def subscribe(server \\ __MODULE__) do
     GenServer.call(server, {:subscribe, self()})
   end
 
   @spec unsubscribe(GenServer.server()) :: :ok
+  @doc "Unsubscribes the caller and stops scheduled sampling when no subscribers remain."
   def unsubscribe(server \\ __MODULE__) do
     GenServer.call(server, {:unsubscribe, self()})
   end
 
   @spec refresh(GenServer.server()) :: :ok
+  @doc "Requests a scan, coalescing the request when a scan is already running."
   def refresh(server \\ __MODULE__) do
     GenServer.cast(server, :refresh)
   end
 
   @spec latest_snapshot(GenServer.server()) :: BeamConsole.Snapshot.t() | nil
+  @doc "Returns the most recent completed snapshot."
   def latest_snapshot(server \\ __MODULE__) do
     GenServer.call(server, :latest_snapshot)
   end
 
   @spec current_diff(GenServer.server()) :: Diff.t() | nil
+  @doc "Returns the bounded diff produced by the most recent completed scan."
   def current_diff(server \\ __MODULE__) do
     GenServer.call(server, :current_diff)
   end

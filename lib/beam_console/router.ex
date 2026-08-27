@@ -10,12 +10,20 @@ if Code.ensure_loaded?(Phoenix.Router) and Code.ensure_loaded?(Phoenix.LiveView.
     @default_options [as: :beam_console, socket_path: "/live", transport: "websocket"]
     @transports ~w(longpoll websocket)
 
+    @doc "Imports the `beam_console/1` and `beam_console/2` router macros."
     defmacro __using__(_options) do
       quote do
         import BeamConsole.Router, only: [beam_console: 1, beam_console: 2]
       end
     end
 
+    @doc """
+    Mounts the BeamConsole LiveView and its self-contained assets.
+
+    The macro belongs inside a Phoenix router. The host application is
+    responsible for placing the route behind an appropriate browser pipeline
+    and any required authentication or authorization.
+    """
     defmacro beam_console(path, options \\ []) do
       quote bind_quoted: [path: path, options: options] do
         enabled = Keyword.get(options, :enabled, Mix.env() == :dev)
@@ -43,6 +51,7 @@ if Code.ensure_loaded?(Phoenix.Router) and Code.ensure_loaded?(Phoenix.LiveView.
     end
 
     @spec __options__(String.t(), keyword()) :: {atom(), keyword(), keyword()}
+    @doc "Builds validated LiveView session and route options for the router macro."
     def __options__(prefix, options) do
       options = Keyword.merge(@default_options, options)
       validate_options!(options)
@@ -59,6 +68,7 @@ if Code.ensure_loaded?(Phoenix.Router) and Code.ensure_loaded?(Phoenix.LiveView.
     end
 
     @spec __session__(Plug.Conn.t() | map(), String.t(), String.t(), String.t()) :: map()
+    @doc "Builds the serializable session metadata used by the embedded LiveView."
     def __session__(_conn, prefix, live_path, live_transport) do
       %{
         "prefix" => prefix,

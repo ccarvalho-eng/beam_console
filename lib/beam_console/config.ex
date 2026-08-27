@@ -1,5 +1,10 @@
 defmodule BeamConsole.Config do
-  @moduledoc false
+  @moduledoc """
+  Resolves bounded collector settings from mount or process options.
+
+  Unknown keys raise so configuration mistakes do not silently weaken runtime
+  limits.
+  """
 
   @defaults [
     interval: 2_000,
@@ -14,11 +19,13 @@ defmodule BeamConsole.Config do
   ]
 
   @spec defaults() :: keyword()
+  @doc "Returns the default collector limits and sampling intervals."
   def defaults do
     @defaults
   end
 
   @spec get(keyword(), atom()) :: term()
+  @doc "Returns an explicit option value or the corresponding default."
   def get(options, key) do
     Keyword.get(options, key, Keyword.fetch!(@defaults, key))
   end

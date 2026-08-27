@@ -11,26 +11,46 @@ defmodule BeamConsole do
   alias BeamConsole.Snapshot
 
   @spec subscribe(GenServer.server()) :: {:ok, Snapshot.t() | nil}
+  @doc """
+  Subscribes the calling process to sampled snapshot notifications.
+
+  The return value contains the latest snapshot when one has already completed.
+  Subscribers receive `{:beam_console_snapshot, sequence, diff}` messages and
+  are removed automatically when they terminate.
+  """
   def subscribe(server \\ Collector) do
     Collector.subscribe(server)
   end
 
   @spec unsubscribe(GenServer.server()) :: :ok
+  @doc "Stops snapshot notifications for the calling process."
   def unsubscribe(server \\ Collector) do
     Collector.unsubscribe(server)
   end
 
   @spec refresh(GenServer.server()) :: :ok
+  @doc """
+  Requests a new bounded runtime scan.
+
+  Concurrent requests are coalesced so the collector never overlaps scans.
+  """
   def refresh(server \\ Collector) do
     Collector.refresh(server)
   end
 
   @spec latest_snapshot(GenServer.server()) :: Snapshot.t() | nil
+  @doc "Returns the latest completed snapshot, or `nil` before the first scan."
   def latest_snapshot(server \\ Collector) do
     Collector.latest_snapshot(server)
   end
 
   @spec search(Snapshot.t() | nil, String.t(), non_neg_integer()) :: [BeamConsole.ProcessInfo.t()]
+  @doc """
+  Searches process labels and safe metadata in a snapshot.
+
+  Matching is case-insensitive and the result count is bounded by `limit`. A
+  missing snapshot returns an empty list.
+  """
   def search(snapshot, query, limit \\ 100)
 
   def search(nil, _query, _limit) do
@@ -49,6 +69,12 @@ defmodule BeamConsole do
 
   @spec detail(Snapshot.t() | nil, String.t()) ::
           {:ok, BeamConsole.ProcessDetail.t()} | {:error, :unknown | :unavailable}
+  @doc """
+  Loads allowlisted details for an opaque process entity ID.
+
+  Unknown IDs return `{:error, :unknown}`. A process that has exited or is not
+  local to the inspected snapshot returns `{:error, :unavailable}`.
+  """
   def detail(nil, _entity_id) do
     {:error, :unknown}
   end

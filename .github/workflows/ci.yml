@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ELIXIR_VERSION: "1.19.5"
+  OTP_VERSION: "28.4.1"
+  MIX_ENV: test
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          cache-suffix: test
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.15.0"
+          package-manager-cache: false
+
+      - name: Compile with warnings as errors
+        run: mix compile --warnings-as-errors
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Check compile-connected cycles
+        run: mix xref graph --format cycles --label compile-connected --fail-above 0
+
+      - name: Check unused lock entries
+        run: mix deps.unlock --check-unused
+
+      - name: Run tests with coverage
+        run: mix test --cover
+
+      - name: Install JavaScript dependencies
+        run: npm ci --prefix assets
+
+      - name: Check JavaScript assets
+        run: npm --prefix assets run check
+
+      - name: Install demo dependencies
+        working-directory: examples/demo
+        run: mix deps.get
+
+      - name: Verify demo application
+        working-directory: examples/demo
+        run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
+
+      - name: Install plain-host dependencies
+        working-directory: fixtures/plain_host
+        run: mix deps.get
+
+      - name: Compile plain Elixir host
+        working-directory: fixtures/plain_host
+        run: mix compile --warnings-as-errors
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Elixir
+        uses: ./.github/actions/setup-elixir
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          cache-suffix: static
+
+      - name: Run Credo
+        run: mix credo --strict --min-priority high
+
+      - name: Check documentation coverage
+        run: mix doctor --raise
+
+      - name: Run Phoenix security analysis
+        run: mix sobelow --skip --no-router --ignore Config.HTTPS --private --exit
+
+      - name: Audit Elixir dependencies
+        run: mix deps.audit
+
+      - name: Run Dialyzer
+        run: mix dialyzer --list-unused-filters
