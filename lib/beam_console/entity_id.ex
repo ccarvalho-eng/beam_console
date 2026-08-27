@@ -79,11 +79,38 @@ defmodule BeamConsole.EntityId do
     "opaque child"
   end
 
-  defp truncate(value, limit) when byte_size(value) <= limit do
-    value
+  defp truncate(value, limit) do
+    limit = max(limit, 0)
+
+    cond do
+      String.valid?(value) and byte_size(value) <= limit ->
+        value
+
+      String.valid?(value) ->
+        grapheme_prefix(value, limit, "") <> "…"
+
+      true ->
+        placeholder = "binary(#{byte_size(value)} bytes)"
+
+        if byte_size(placeholder) <= limit do
+          placeholder
+        else
+          grapheme_prefix(placeholder, limit, "") <> "…"
+        end
+    end
   end
 
-  defp truncate(value, limit) do
-    binary_part(value, 0, limit) <> "…"
+  defp grapheme_prefix(_value, 0, result) do
+    result
+  end
+
+  defp grapheme_prefix(value, remaining, result) do
+    case String.next_grapheme(value) do
+      {grapheme, rest} when byte_size(grapheme) <= remaining ->
+        grapheme_prefix(rest, remaining - byte_size(grapheme), result <> grapheme)
+
+      _complete_or_too_large ->
+        result
+    end
   end
 end

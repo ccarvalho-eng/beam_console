@@ -84,7 +84,7 @@ defmodule BeamConsole.ReasonSummary do
   end
 
   defp render(value, _depth, _max_depth, _max_items) when is_list(value) do
-    "list(#{bounded_length(value)} items)"
+    list_summary(value)
   end
 
   defp render(value, _depth, _max_depth, _max_items) when is_pid(value), do: "pid"
@@ -100,11 +100,28 @@ defmodule BeamConsole.ReasonSummary do
     end
   end
 
-  defp bounded_length(value) do
-    case Enum.count_until(value, 10_001) do
-      10_001 -> "more than 10000"
-      length -> Integer.to_string(length)
+  defp list_summary(value) do
+    case bounded_list_shape(value, 0) do
+      {:proper, length} -> "list(#{length} items)"
+      {:improper, length} -> "improper_list(#{length} heads)"
+      :truncated -> "list(more than 10000 items)"
     end
+  end
+
+  defp bounded_list_shape([], length) do
+    {:proper, length}
+  end
+
+  defp bounded_list_shape([_head | _tail], 10_000) do
+    :truncated
+  end
+
+  defp bounded_list_shape([_head | tail], length) do
+    bounded_list_shape(tail, length + 1)
+  end
+
+  defp bounded_list_shape(_tail, length) do
+    {:improper, length}
   end
 
   defp truncate(value, max_bytes) when byte_size(value) <= max_bytes do

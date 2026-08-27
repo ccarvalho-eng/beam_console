@@ -81,6 +81,19 @@ defmodule BeamConsole.CollectorTest do
     assert_receive {:beam_console_snapshot, 2}
   end
 
+  test "rate limits operator refresh requests", %{collector: collector} do
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:scan_started, 1, scanner}
+
+    assert :ok = Collector.request_refresh(collector)
+    assert {:error, :rate_limited} = Collector.request_refresh(collector)
+
+    send(scanner, :release)
+    assert_receive {:beam_console_snapshot, 1}
+    assert_receive {:scan_started, 2, next_scanner}
+    send(next_scanner, :release)
+  end
+
   test "remains idle until a subscriber arrives", %{collector: collector} do
     refute_receive {:scan_started, _sequence, _pid}
     assert {:ok, nil} = Collector.subscribe(collector)
@@ -379,17 +392,28 @@ defmodule BeamConsole.CollectorTest do
     send(failing_scanner, {:release, {:error, :runtime_unavailable}})
     assert_receive {:DOWN, ^failing_monitor, :process, ^failing_scanner, :normal}
 
+    assert_receive {:beam_console_snapshot, 1}
+
+    assert %Collector.Status{
+             sequence: 1,
+             stale?: true,
+             scanning?: false,
+             last_error: %BeamConsole.ReasonSummary{text: "runtime_unavailable"}
+           } = Collector.status(collector)
+
+    assert Collector.latest_snapshot(collector).stale?
+    assert :ok = Collector.acknowledge(1, collector)
+
     Collector.refresh(collector)
     assert_receive {:scan_started, 2, recovery_scanner}
 
     state = :sys.get_state(collector)
     assert state.snapshot.sequence == 1
     assert state.last_error == :runtime_unavailable
-    refute_receive {:beam_console_snapshot, _sequence}
-
     send(recovery_scanner, :release)
     assert_receive {:beam_console_snapshot, 2}
     assert eventually(fn -> :sys.get_state(collector).last_error == nil end)
+    refute Collector.latest_snapshot(collector).stale?
   end
 
   test "recovers after a runtime task crashes", %{collector: collector} do
@@ -399,6 +423,8 @@ defmodule BeamConsole.CollectorTest do
     send(crashing_scanner, {:release, :crash})
 
     assert_receive {:DOWN, ^crashing_monitor, :process, ^crashing_scanner, :runtime_crash}
+    assert_receive {:beam_console_snapshot, 0}
+    assert :ok = Collector.acknowledge(0, collector)
     Collector.refresh(collector)
     assert_receive {:scan_started, 1, recovery_scanner}
     assert :sys.get_state(collector).last_error == :runtime_crash
@@ -428,6 +454,8 @@ defmodule BeamConsole.CollectorTest do
     assert_receive {:scan_started, 1, timed_out_scanner}
     timeout_monitor = Process.monitor(timed_out_scanner)
     assert_receive {:DOWN, ^timeout_monitor, :process, ^timed_out_scanner, _reason}
+    assert_receive {:beam_console_snapshot, 0}
+    assert :ok = Collector.acknowledge(0, collector)
 
     Collector.refresh(collector)
     assert_receive {:scan_started, 1, recovery_scanner}

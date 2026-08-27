@@ -1,9 +1,10 @@
 defmodule BeamConsole.Config do
   @moduledoc """
-  Resolves bounded collector settings from mount or process options.
+  Resolves and validates bounded collector settings.
 
-  Unknown keys raise so configuration mistakes do not silently weaken runtime
-  limits.
+  Collector application configuration rejects unknown keys so mistakes do not
+  silently weaken runtime limits. Runtime adapters can also read individual
+  resolved values through `get/2`.
   """
 
   alias BeamConsole.Recorder.Config, as: RecorderConfig
@@ -17,13 +18,60 @@ defmodule BeamConsole.Config do
     children_limit: 10_000,
     supervisor_timeout: 100,
     diff_limit: 500,
-    relationship_limit: 200
+    relationship_limit: 200,
+    refresh_cooldown: 250
   ]
+
+  @runtime_keys [
+    :process_limit,
+    :supervisor_limit,
+    :topology_depth,
+    :children_limit,
+    :supervisor_timeout,
+    :relationship_limit
+  ]
+
+  @non_negative_fields [:refresh_cooldown]
 
   @spec defaults() :: keyword()
   @doc "Returns the default collector limits and sampling intervals."
   def defaults do
     @defaults
+  end
+
+  @spec collector(keyword()) :: keyword()
+  @doc """
+  Loads validated `:beam_console, :collector` configuration and applies overrides.
+
+  Runtime overrides take precedence over application configuration.
+  """
+  def collector(overrides \\ []) do
+    configured = Application.get_env(:beam_console, :collector, [])
+
+    with true <- Keyword.keyword?(configured) and Keyword.keyword?(overrides),
+         options <- Keyword.merge(@defaults, configured),
+         options <- Keyword.merge(options, overrides),
+         :ok <- validate_collector(options) do
+      options
+    else
+      false ->
+        raise ArgumentError, "collector configuration must be a keyword list"
+
+      {:error, message} ->
+        raise ArgumentError, message
+    end
+  end
+
+  @spec collector_keys() :: [atom()]
+  @doc "Returns the supported collector configuration keys."
+  def collector_keys do
+    Keyword.keys(@defaults)
+  end
+
+  @spec runtime_keys() :: [atom()]
+  @doc "Returns the collector settings forwarded to the runtime adapter."
+  def runtime_keys do
+    @runtime_keys
   end
 
   @spec get(keyword(), atom()) :: term()
@@ -36,5 +84,35 @@ defmodule BeamConsole.Config do
   @doc "Loads validated flight-recorder configuration with optional runtime overrides."
   def recorder(overrides \\ []) do
     RecorderConfig.load(overrides)
+  end
+
+  defp validate_collector(options) do
+    unknown = Keyword.keys(options) -- collector_keys()
+
+    cond do
+      unknown != [] ->
+        {:error, "unknown collector configuration: #{inspect(Enum.uniq(unknown))}"}
+
+      invalid = Enum.find(@non_negative_fields, &(not non_negative_integer?(options[&1]))) ->
+        {:error, "collector #{invalid} must be a non-negative integer"}
+
+      invalid =
+          Enum.find(
+            collector_keys() -- @non_negative_fields,
+            &(not positive_integer?(options[&1]))
+          ) ->
+        {:error, "collector #{invalid} must be a positive integer"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp non_negative_integer?(value) do
+    is_integer(value) and value >= 0
+  end
+
+  defp positive_integer?(value) do
+    is_integer(value) and value > 0
   end
 end

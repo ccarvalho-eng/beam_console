@@ -7,6 +7,7 @@ defmodule BeamConsole do
   """
 
   alias BeamConsole.Collector
+  alias BeamConsole.Collector.Status
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
 
@@ -35,14 +36,21 @@ defmodule BeamConsole do
     Collector.acknowledge(sequence, server)
   end
 
-  @spec refresh(GenServer.server()) :: :ok
+  @spec refresh(GenServer.server()) :: :ok | {:error, :rate_limited}
   @doc """
   Requests a new bounded runtime scan.
 
   Concurrent requests are coalesced so the collector never overlaps scans.
+  Rapid operator requests return `{:error, :rate_limited}`.
   """
   def refresh(server \\ Collector) do
-    Collector.refresh(server)
+    Collector.request_refresh(server)
+  end
+
+  @spec status(GenServer.server()) :: Status.t()
+  @doc "Returns bounded collector health and snapshot freshness information."
+  def status(server \\ Collector) do
+    Collector.status(server)
   end
 
   @spec latest_snapshot(GenServer.server()) :: Snapshot.t() | nil

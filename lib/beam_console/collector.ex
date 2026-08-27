@@ -12,10 +12,12 @@ defmodule BeamConsole.Collector do
 
   alias BeamConsole.Config
   alias BeamConsole.Collector.Subscriber
+  alias BeamConsole.Collector.Status
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
   alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
   alias BeamConsole.Recorder.Frame
+  alias BeamConsole.ReasonSummary
   alias BeamConsole.Runtime.InternalProcesses
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
@@ -40,7 +42,11 @@ defmodule BeamConsole.Collector do
             scan_timeout_ref: nil,
             tick_ref: nil,
             pending_refresh?: false,
-            last_error: nil
+            last_error: nil,
+            last_failure_at: nil,
+            refresh_cooldown: 250,
+            last_operator_refresh_ms: nil,
+            monotonic_clock: nil
 
   @type t :: %__MODULE__{
           name: GenServer.name() | nil,
@@ -63,7 +69,11 @@ defmodule BeamConsole.Collector do
           scan_timeout_ref: reference() | nil,
           tick_ref: {reference(), reference()} | nil,
           pending_refresh?: boolean(),
-          last_error: term()
+          last_error: term(),
+          last_failure_at: DateTime.t() | nil,
+          refresh_cooldown: non_neg_integer(),
+          last_operator_refresh_ms: integer() | nil,
+          monotonic_clock: (-> integer())
         }
 
   @type state :: t()
@@ -99,6 +109,12 @@ defmodule BeamConsole.Collector do
     GenServer.cast(server, :refresh)
   end
 
+  @spec request_refresh(GenServer.server()) :: :ok | {:error, :rate_limited}
+  @doc "Requests an operator scan while enforcing the configured refresh cooldown."
+  def request_refresh(server \\ __MODULE__) do
+    GenServer.call(server, :request_refresh)
+  end
+
   @spec latest_snapshot(GenServer.server()) :: BeamConsole.Snapshot.t() | nil
   @doc "Returns the most recent completed snapshot."
   def latest_snapshot(server \\ __MODULE__) do
@@ -111,6 +127,12 @@ defmodule BeamConsole.Collector do
     GenServer.call(server, :current_diff)
   end
 
+  @spec status(GenServer.server()) :: Status.t()
+  @doc "Returns bounded collector health and freshness information."
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
+  end
+
   @type changes_result :: {:ok, [Diff.t()]} | {:resync, BeamConsole.Snapshot.t() | nil}
 
   @spec changes_since(non_neg_integer(), GenServer.server()) :: changes_result()
@@ -121,17 +143,32 @@ defmodule BeamConsole.Collector do
 
   @impl true
   def init(options) do
+    configured =
+      options
+      |> Keyword.take(Config.collector_keys())
+      |> Config.collector()
+
+    runtime_options =
+      configured
+      |> Keyword.take(Config.runtime_keys())
+      |> Keyword.merge(Keyword.get(options, :runtime_options, []))
+
     state = %__MODULE__{
       name: Keyword.fetch!(options, :name),
       runtime: Keyword.get(options, :runtime, Local),
-      runtime_options: Keyword.get(options, :runtime_options, []),
+      runtime_options: runtime_options,
       lifecycle_recorder: Keyword.get(options, :lifecycle_recorder),
       always_record?: Keyword.get(options, :always_record?, false),
       recorder_epoch: EntityId.build(:event, {:collector_epoch, make_ref()}),
       task_supervisor: Keyword.get(options, :task_supervisor, BeamConsole.TaskSupervisor),
-      interval: Config.get(options, :interval),
-      scan_timeout: Config.get(options, :scan_timeout),
-      diff_limit: Config.get(options, :diff_limit)
+      interval: Keyword.fetch!(configured, :interval),
+      scan_timeout: Keyword.fetch!(configured, :scan_timeout),
+      diff_limit: Keyword.fetch!(configured, :diff_limit),
+      refresh_cooldown: Keyword.fetch!(configured, :refresh_cooldown),
+      monotonic_clock:
+        Keyword.get(options, :monotonic_clock, fn ->
+          System.monotonic_time(:millisecond)
+        end)
     }
 
     {:ok, if(state.always_record?, do: request_scan(state), else: state)}
@@ -163,6 +200,21 @@ defmodule BeamConsole.Collector do
     {:reply, state.diff, state}
   end
 
+  def handle_call(:status, _from, state) do
+    {:reply, status_from_state(state), state}
+  end
+
+  def handle_call(:request_refresh, _from, state) do
+    now_ms = state.monotonic_clock.()
+
+    if refresh_allowed?(state, now_ms) do
+      next_state = state |> request_scan() |> Map.put(:last_operator_refresh_ms, now_ms)
+      {:reply, :ok, next_state}
+    else
+      {:reply, {:error, :rate_limited}, state}
+    end
+  end
+
   def handle_call({:changes_since, sequence}, _from, state) do
     result = changes_since_sequence(state, sequence)
     {:reply, result, state}
@@ -190,6 +242,7 @@ defmodule BeamConsole.Collector do
     Process.demonitor(reference, [:flush])
     cancel_timer(state.scan_timeout_ref)
 
+    snapshot = %{snapshot | stale?: false}
     frame = Frame.from_snapshot(snapshot, System.monotonic_time(:millisecond))
 
     {snapshot, observations} =
@@ -207,7 +260,8 @@ defmodule BeamConsole.Collector do
         sequence: snapshot.sequence,
         scan: nil,
         scan_timeout_ref: nil,
-        last_error: nil
+        last_error: nil,
+        last_failure_at: nil
     }
 
     next_state = notify_subscribers(next_state)
@@ -218,27 +272,19 @@ defmodule BeamConsole.Collector do
     Process.demonitor(reference, [:flush])
     cancel_timer(state.scan_timeout_ref)
 
-    {:noreply,
-     schedule_after_scan(%{state | scan: nil, scan_timeout_ref: nil, last_error: reason})}
+    {:noreply, fail_scan(state, reason)}
   end
 
   def handle_info({:DOWN, reference, :process, _pid, reason}, %{scan: %{ref: reference}} = state) do
     cancel_timer(state.scan_timeout_ref)
 
-    {:noreply,
-     schedule_after_scan(%{state | scan: nil, scan_timeout_ref: nil, last_error: reason})}
+    {:noreply, fail_scan(state, reason)}
   end
 
   def handle_info({:scan_timeout, reference}, %{scan: %{ref: reference, pid: pid}} = state) do
     _result = Task.Supervisor.terminate_child(state.task_supervisor, pid)
 
-    {:noreply,
-     schedule_after_scan(%{
-       state
-       | scan: nil,
-         scan_timeout_ref: nil,
-         last_error: :scan_timeout
-     })}
+    {:noreply, fail_scan(state, :scan_timeout)}
   end
 
   def handle_info({:DOWN, reference, :process, subscriber, _reason}, state) do
@@ -276,6 +322,45 @@ defmodule BeamConsole.Collector do
 
   defp request_scan(state) do
     %{state | pending_refresh?: true}
+  end
+
+  defp refresh_allowed?(%{last_operator_refresh_ms: nil}, _now_ms) do
+    true
+  end
+
+  defp refresh_allowed?(state, now_ms) do
+    now_ms - state.last_operator_refresh_ms >= state.refresh_cooldown
+  end
+
+  defp fail_scan(state, reason) do
+    snapshot =
+      case state.snapshot do
+        %Snapshot{} = snapshot -> %{snapshot | stale?: true}
+        nil -> nil
+      end
+
+    state
+    |> Map.merge(%{
+      snapshot: snapshot,
+      scan: nil,
+      scan_timeout_ref: nil,
+      last_error: reason,
+      last_failure_at: DateTime.utc_now()
+    })
+    |> notify_subscribers()
+    |> schedule_after_scan()
+  end
+
+  defp status_from_state(state) do
+    %Status{
+      sequence: state.sequence,
+      sampled_at: state.snapshot && state.snapshot.sampled_at,
+      stale?: not is_nil(state.last_error),
+      scanning?: not is_nil(state.scan),
+      subscriber_count: map_size(state.subscribers),
+      last_error: state.last_error && ReasonSummary.sanitize(state.last_error),
+      failed_at: state.last_failure_at
+    }
   end
 
   defp schedule_after_scan(%{pending_refresh?: true} = state) do

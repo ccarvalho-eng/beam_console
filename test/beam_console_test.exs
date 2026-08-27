@@ -18,6 +18,17 @@ defmodule BeamConsoleTest do
     assert process_id =~ ~r/^proc_[A-Za-z0-9_-]+$/
   end
 
+  test "entity labels preserve valid UTF-8 at byte boundaries" do
+    label = EntityId.label("éé", 1)
+
+    assert label == "…"
+    assert String.valid?(label)
+
+    invalid_label = EntityId.label(<<255>>, 8)
+    assert invalid_label == "binary(1…"
+    assert String.valid?(invalid_label)
+  end
+
   test "diffs classify observed process changes" do
     first = snapshot(1, %{"proc_old" => process("proc_old", 1)})
 

@@ -60,4 +60,12 @@ defmodule BeamConsole.ReasonSummaryTest do
     invalid_options = ReasonSummary.sanitize(:error, max_bytes: 0, max_depth: 0, max_items: 0)
     assert invalid_options.text == "error"
   end
+
+  test "sanitizes improper lists without crashing or retaining their tail" do
+    summary = ReasonSummary.sanitize({:error, ["private" | {:token, "secret"}]})
+
+    assert summary.text == "{error, improper_list(1 heads)}"
+    refute summary.text =~ "private"
+    refute summary.text =~ "secret"
+  end
 end
