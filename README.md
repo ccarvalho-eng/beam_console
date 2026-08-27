@@ -8,6 +8,8 @@
 
 BeamConsole is an embeddable, read-only process flight recorder and process map for Phoenix and BEAM applications. It makes supervision, process relationships, lifecycle changes, per-process activity, and node-wide runtime health visible without application-specific instrumentation.
 
+<img width="1623" height="969" alt="Screenshot 2026-08-27 at 8 30 16 PM" src="https://github.com/user-attachments/assets/d628095e-ba57-4a5d-855b-2302fb30bf04" />
+
 ## Installation
 
 Add BeamConsole to a Phoenix application:
