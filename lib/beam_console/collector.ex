@@ -16,6 +16,7 @@ defmodule BeamConsole.Collector do
   alias BeamConsole.EntityId
   alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
   alias BeamConsole.Recorder.Frame
+  alias BeamConsole.Runtime.InternalProcesses
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
 
@@ -190,7 +191,10 @@ defmodule BeamConsole.Collector do
     cancel_timer(state.scan_timeout_ref)
 
     frame = Frame.from_snapshot(snapshot, System.monotonic_time(:millisecond))
-    {snapshot, observations} = detach_lifecycle_observations(snapshot)
+
+    {snapshot, observations} =
+      detach_lifecycle_observations(snapshot, state.task_supervisor)
+
     state = deliver_lifecycle_observations(state, frame, observations)
 
     diff = Diff.between(state.snapshot, snapshot, state.diff_limit)
@@ -397,8 +401,13 @@ defmodule BeamConsole.Collector do
     {:resync, state.snapshot}
   end
 
-  defp detach_lifecycle_observations(%Snapshot{} = snapshot) do
-    observations = snapshot.lifecycle_observations
+  defp detach_lifecycle_observations(%Snapshot{} = snapshot, task_supervisor) do
+    observations =
+      InternalProcesses.reject_probe_observations(
+        snapshot.lifecycle_observations,
+        task_supervisor
+      )
+
     {%{snapshot | lifecycle_observations: []}, observations}
   end
 

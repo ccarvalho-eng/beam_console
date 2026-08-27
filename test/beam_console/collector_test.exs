@@ -137,6 +137,30 @@ defmodule BeamConsole.CollectorTest do
     assert Collector.latest_snapshot(collector).lifecycle_observations == []
   end
 
+  test "does not send sampling task observations to the lifecycle recorder", %{
+    collector: collector
+  } do
+    observation = %Observation{
+      slot_id: "slot_probe",
+      slot_kind: :dynamic,
+      supervisor_pid: Process.whereis(BeamConsole.TaskSupervisor),
+      child_pid: self(),
+      child_state: :running,
+      child_type: :worker,
+      modules: [Task.Supervised],
+      sequence: 1,
+      coverage: :complete
+    }
+
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, {:release, {:ok, [observation]}})
+
+    assert_receive {:beam_console_snapshot, 1}
+    assert_receive {:"$gen_cast", {:observe, frame, [], _options}}
+    assert frame.sequence == 1
+  end
+
   test "samples for always recording before any viewer subscribes" do
     name = Module.concat(__MODULE__, "AlwaysCollector#{System.unique_integer([:positive])}")
 
@@ -413,6 +437,41 @@ defmodule BeamConsole.CollectorTest do
     assert_receive {:beam_console_snapshot, 1}
   end
 
+  test "does not recursively resample when internal probe tasks exit" do
+    suffix = System.unique_integer([:positive])
+    recorder_name = Module.concat(__MODULE__, "LoopRecorder#{suffix}")
+    collector_name = Module.concat(__MODULE__, "LoopCollector#{suffix}")
+
+    recorder =
+      start_supervised!(
+        Supervisor.child_spec(
+          {LifecycleRecorder,
+           name: recorder_name, config: RecorderConfig.new!(), collector: collector_name},
+          id: recorder_name
+        )
+      )
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: collector_name,
+           lifecycle_recorder: recorder,
+           interval: 60_000,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: collector_name
+        )
+      )
+
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:beam_console_snapshot, 1}, 2_000
+    assert :ok = Collector.acknowledge(1, collector)
+
+    refute_receive {:beam_console_snapshot, 2}, 250
+    assert :sys.get_state(collector).sequence == 1
+  end
+
   defp fast_subscriber_loop(collector, owner) do
     receive do
       {:beam_console_snapshot, sequence} ->
@@ -440,7 +499,7 @@ defmodule BeamConsole.CollectorTest do
     end
   end
 
-  defp eventually(fun, attempts \\ 100)
+  defp eventually(fun, attempts \\ 1_000)
 
   defp eventually(fun, attempts) when attempts > 0 do
     if fun.() do

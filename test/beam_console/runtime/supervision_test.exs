@@ -104,4 +104,13 @@ defmodule BeamConsole.Runtime.SupervisionTest do
     assert map_size(attribution) == 1
     assert [%Observation{coverage: :truncated}] = observations
   end
+
+  test "does not observe children of its own probe task supervisor" do
+    task_supervisor = Process.whereis(BeamConsole.TaskSupervisor)
+
+    assert {_edges, _attribution, observations, 0, false} =
+             Supervision.collect([{:beam_console, task_supervisor}], node(), [])
+
+    assert observations == []
+  end
 end

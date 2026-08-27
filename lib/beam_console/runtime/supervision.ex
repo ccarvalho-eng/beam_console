@@ -10,6 +10,7 @@ defmodule BeamConsole.Runtime.Supervision do
   alias BeamConsole.Config
   alias BeamConsole.EntityId
   alias BeamConsole.Lifecycle.Observation
+  alias BeamConsole.Runtime.InternalProcesses
   alias BeamConsole.Runtime.Supervision.State
   alias BeamConsole.SupervisionEdge
 
@@ -21,6 +22,8 @@ defmodule BeamConsole.Runtime.Supervision do
           local_node: node(),
           options: keyword(),
           sequence: non_neg_integer(),
+          task_supervisor: GenServer.server(),
+          task_supervisor_pid: pid() | nil,
           supervisor_limit: non_neg_integer(),
           children_limit: non_neg_integer(),
           depth_limit: non_neg_integer()
@@ -43,11 +46,14 @@ defmodule BeamConsole.Runtime.Supervision do
   """
   def collect(roots, local_node, options) do
     queue = Enum.map(roots, fn {application, pid} -> {application, pid, 0} end)
+    task_supervisor = Keyword.get(options, :task_supervisor, BeamConsole.TaskSupervisor)
 
     context = %{
       local_node: local_node,
       options: options,
       sequence: Keyword.get(options, :sequence, 0),
+      task_supervisor: task_supervisor,
+      task_supervisor_pid: InternalProcesses.task_supervisor_pid(task_supervisor),
       supervisor_limit: Config.get(options, :supervisor_limit),
       children_limit: Config.get(options, :children_limit),
       depth_limit: Config.get(options, :topology_depth)
@@ -72,6 +78,10 @@ defmodule BeamConsole.Runtime.Supervision do
     {application, supervisor, depth} = item
 
     cond do
+      supervisor == context.task_supervisor_pid ->
+        visited = Map.put(state.visited, supervisor, true)
+        walk(rest, %{state | visited: visited}, context)
+
       state.children >= context.children_limit ->
         %{state | reached_limit?: true}
 
@@ -90,7 +100,7 @@ defmodule BeamConsole.Runtime.Supervision do
   defp visit(rest, application, supervisor, depth, state, context) do
     state = %{state | visited: Map.put(state.visited, supervisor, true)}
 
-    case which_children(supervisor, context.options) do
+    case which_children(supervisor, context) do
       {:ok, children} ->
         remaining = max(context.children_limit - state.children, 0)
         {included, omitted} = Enum.split(children, remaining)
@@ -191,11 +201,11 @@ defmodule BeamConsole.Runtime.Supervision do
     }
   end
 
-  defp which_children(supervisor, options) do
-    timeout = Config.get(options, :supervisor_timeout)
+  defp which_children(supervisor, context) do
+    timeout = Config.get(context.options, :supervisor_timeout)
 
     task =
-      Task.Supervisor.async_nolink(BeamConsole.TaskSupervisor, fn ->
+      Task.Supervisor.async_nolink(context.task_supervisor, fn ->
         Supervisor.which_children(supervisor)
       end)
 
