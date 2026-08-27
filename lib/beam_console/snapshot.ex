@@ -7,6 +7,7 @@ defmodule BeamConsole.Snapshot do
   """
 
   alias BeamConsole.Coverage
+  alias BeamConsole.Lifecycle.Observation
 
   @enforce_keys [:sequence, :sampled_at, :local_node_id]
   defstruct sequence: 0,
@@ -17,6 +18,7 @@ defmodule BeamConsole.Snapshot do
             processes: %{},
             edges: %{},
             index: %{},
+            lifecycle_observations: [],
             coverage: %Coverage{},
             stale?: false
 
@@ -32,6 +34,7 @@ defmodule BeamConsole.Snapshot do
           processes: %{String.t() => BeamConsole.ProcessInfo.t()},
           edges: %{String.t() => BeamConsole.SupervisionEdge.t()},
           index: %{String.t() => private_index_value()},
+          lifecycle_observations: [Observation.t()],
           coverage: Coverage.t(),
           stale?: boolean()
         }

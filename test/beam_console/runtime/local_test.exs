@@ -15,8 +15,16 @@ defmodule BeamConsole.Runtime.LocalTest do
 
   test "rejects details for a process absent from the snapshot" do
     assert {:ok, snapshot} = Local.snapshot(sequence: 1, process_limit: 10_000)
-    pid = spawn(fn -> :ok end)
+
+    pid =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
     reference = Process.monitor(pid)
+    send(pid, :stop)
     assert_receive {:DOWN, ^reference, :process, ^pid, :normal}
 
     assert {:error, :unavailable} = Local.detail(pid, snapshot)

@@ -16,7 +16,8 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
         snapshot
       else
         BeamConsole.refresh()
-        assert_receive {:beam_console_snapshot, _sequence, _diff}, 2_000
+        assert_receive {:beam_console_snapshot, sequence}, 2_000
+        :ok = BeamConsole.acknowledge(sequence)
         BeamConsole.latest_snapshot()
       end
 
@@ -61,7 +62,7 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     {:ok, view, _html} = live(build_conn(), "/beam")
     assert_push_event(view, "beam_console_graph", %{sequence: _initial_sequence})
 
-    send(view.pid, {:beam_console_snapshot, snapshot.sequence, %{}})
+    send(view.pid, {:beam_console_snapshot, snapshot.sequence})
 
     assert_push_event(view, "beam_console_graph", %{sequence: _sequence})
   end

@@ -7,9 +7,11 @@ defmodule BeamConsole.Runtime.Supervision.State do
   """
 
   alias BeamConsole.SupervisionEdge
+  alias BeamConsole.Lifecycle.Observation
 
   defstruct edges: %{},
             attribution: %{},
+            observations: [],
             visited: %{},
             partial: 0,
             children: 0,
@@ -18,6 +20,7 @@ defmodule BeamConsole.Runtime.Supervision.State do
   @type t :: %__MODULE__{
           edges: %{String.t() => SupervisionEdge.t()},
           attribution: %{String.t() => atom()},
+          observations: [Observation.t()],
           visited: %{pid() => true},
           partial: non_neg_integer(),
           children: non_neg_integer(),

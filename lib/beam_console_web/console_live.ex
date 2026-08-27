@@ -96,7 +96,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     @impl true
-    def handle_info({:beam_console_snapshot, _sequence, _diff}, socket) do
+    def handle_info({:beam_console_snapshot, sequence}, socket) do
       socket =
         socket
         |> load_snapshot(BeamConsole.latest_snapshot())
@@ -104,6 +104,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:graph_refresh_pending?, false)
         |> push_graph()
 
+      :ok = BeamConsole.acknowledge(sequence)
       {:noreply, socket}
     end
 
@@ -168,8 +169,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 data-tooltip="Refresh sample"
               >
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M20 7v5h-5M4 17v-5h5" />
-                  <path d="M18.4 9A7 7 0 0 0 6.2 6.8L4 9M5.6 15A7 7 0 0 0 17.8 17.2L20 15" />
+                  <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
               </button>
               <div

@@ -15,8 +15,9 @@ defmodule BeamConsole do
   Subscribes the calling process to sampled snapshot notifications.
 
   The return value contains the latest snapshot when one has already completed.
-  Subscribers receive `{:beam_console_snapshot, sequence, diff}` messages and
-  are removed automatically when they terminate.
+  Subscribers receive `{:beam_console_snapshot, sequence}` version-invalidating
+  messages and are removed automatically when they terminate. A subscriber must
+  acknowledge each delivered sequence after reading the latest bounded state.
   """
   def subscribe(server \\ Collector) do
     Collector.subscribe(server)
@@ -26,6 +27,12 @@ defmodule BeamConsole do
   @doc "Stops snapshot notifications for the calling process."
   def unsubscribe(server \\ Collector) do
     Collector.unsubscribe(server)
+  end
+
+  @spec acknowledge(non_neg_integer(), GenServer.server()) :: :ok
+  @doc "Acknowledges the caller's outstanding snapshot notification."
+  def acknowledge(sequence, server \\ Collector) do
+    Collector.acknowledge(sequence, server)
   end
 
   @spec refresh(GenServer.server()) :: :ok
@@ -42,6 +49,12 @@ defmodule BeamConsole do
   @doc "Returns the latest completed snapshot, or `nil` before the first scan."
   def latest_snapshot(server \\ Collector) do
     Collector.latest_snapshot(server)
+  end
+
+  @spec changes_since(non_neg_integer(), GenServer.server()) :: Collector.changes_result()
+  @doc "Returns the directly following bounded diff or a full snapshot resync instruction."
+  def changes_since(sequence, server \\ Collector) do
+    Collector.changes_since(sequence, server)
   end
 
   @spec search(Snapshot.t() | nil, String.t(), non_neg_integer()) :: [BeamConsole.ProcessInfo.t()]

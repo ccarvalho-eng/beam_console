@@ -46,7 +46,13 @@ defmodule BeamConsole.Runtime.Local do
     {processes, vanished} = collect_processes(selected_pids, local_node, local_node_id)
     {applications, roots} = collect_applications(local_node, local_node_id)
 
-    {edges, supervision_attribution, partial_supervisors, traversal_limit_reached?} =
+    {
+      edges,
+      supervision_attribution,
+      lifecycle_observations,
+      partial_supervisors,
+      traversal_limit_reached?
+    } =
       Supervision.collect(roots, local_node, options)
 
     processes = apply_supervision_attribution(processes, supervision_attribution)
@@ -73,6 +79,7 @@ defmodule BeamConsole.Runtime.Local do
       applications: applications,
       processes: processes,
       edges: edges,
+      lifecycle_observations: lifecycle_observations,
       coverage: coverage,
       index: build_index(processes, applications, nodes)
     }

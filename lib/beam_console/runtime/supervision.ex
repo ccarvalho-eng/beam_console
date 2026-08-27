@@ -9,14 +9,18 @@ defmodule BeamConsole.Runtime.Supervision do
 
   alias BeamConsole.Config
   alias BeamConsole.EntityId
+  alias BeamConsole.Lifecycle.Observation
   alias BeamConsole.Runtime.Supervision.State
   alias BeamConsole.SupervisionEdge
+
+  @module_limit 4
 
   @type root :: {application :: atom(), supervisor :: pid()}
   @type queue_item :: {application :: atom(), supervisor :: pid(), depth :: non_neg_integer()}
   @type context :: %{
           local_node: node(),
           options: keyword(),
+          sequence: non_neg_integer(),
           supervisor_limit: non_neg_integer(),
           children_limit: non_neg_integer(),
           depth_limit: non_neg_integer()
@@ -24,6 +28,7 @@ defmodule BeamConsole.Runtime.Supervision do
   @type result :: {
           edges :: %{String.t() => SupervisionEdge.t()},
           attribution :: %{String.t() => atom()},
+          observations :: [Observation.t()],
           partial_supervisors :: non_neg_integer(),
           traversal_limit_reached? :: boolean()
         }
@@ -42,13 +47,21 @@ defmodule BeamConsole.Runtime.Supervision do
     context = %{
       local_node: local_node,
       options: options,
+      sequence: Keyword.get(options, :sequence, 0),
       supervisor_limit: Config.get(options, :supervisor_limit),
       children_limit: Config.get(options, :children_limit),
       depth_limit: Config.get(options, :topology_depth)
     }
 
     state = walk(queue, %State{}, context)
-    {state.edges, state.attribution, state.partial, state.reached_limit?}
+
+    {
+      state.edges,
+      state.attribution,
+      Enum.reverse(state.observations),
+      state.partial,
+      state.reached_limit?
+    }
   end
 
   defp walk([], state, _context) do
@@ -81,7 +94,18 @@ defmodule BeamConsole.Runtime.Supervision do
       {:ok, children} ->
         remaining = max(context.children_limit - state.children, 0)
         {included, omitted} = Enum.split(children, remaining)
-        batch = normalize_children(included, application, supervisor, context.local_node, depth)
+
+        batch =
+          normalize_children(
+            included,
+            application,
+            supervisor,
+            context.local_node,
+            depth,
+            context.sequence,
+            if(omitted == [], do: :complete, else: :truncated)
+          )
+
         next_state = merge_batch(state, batch, omitted != [])
         walk(rest ++ batch.additions, next_state, context)
 
@@ -90,15 +114,35 @@ defmodule BeamConsole.Runtime.Supervision do
     end
   end
 
-  defp normalize_children(children, application, parent, local_node, depth) do
+  defp normalize_children(
+         children,
+         application,
+         parent,
+         local_node,
+         depth,
+         sequence,
+         coverage
+       ) do
     parent_id = EntityId.build(:process, {local_node, parent})
 
     Enum.reduce(
       children,
-      %{edges: %{}, attribution: %{}, additions: [], count: 0},
+      %{edges: %{}, attribution: %{}, observations: [], additions: [], count: 0},
       fn {child_key, child, type, modules}, batch ->
         edge_id = EntityId.build(:edge, {local_node, parent, edge_identity(child_key, child)})
         child_id = if is_pid(child), do: EntityId.build(:process, {local_node, child})
+
+        observation =
+          lifecycle_observation(
+            child_key,
+            child,
+            type,
+            modules,
+            parent,
+            local_node,
+            sequence,
+            coverage
+          )
 
         edge = %SupervisionEdge{
           id: edge_id,
@@ -126,6 +170,7 @@ defmodule BeamConsole.Runtime.Supervision do
         %{
           edges: Map.put(batch.edges, edge_id, edge),
           attribution: attribution,
+          observations: [observation | batch.observations],
           additions: additions,
           count: batch.count + 1
         }
@@ -140,6 +185,7 @@ defmodule BeamConsole.Runtime.Supervision do
       state
       | edges: Map.merge(state.edges, batch.edges),
         attribution: Map.merge(state.attribution, batch.attribution),
+        observations: batch.observations ++ state.observations,
         children: children,
         reached_limit?: state.reached_limit? or truncated?
     }
@@ -183,6 +229,63 @@ defmodule BeamConsole.Runtime.Supervision do
 
   defp edge_identity(child_key, _child) do
     child_key
+  end
+
+  defp lifecycle_observation(
+         child_key,
+         child,
+         type,
+         modules,
+         parent,
+         local_node,
+         sequence,
+         coverage
+       ) do
+    %Observation{
+      slot_id: EntityId.build(:slot, {local_node, parent, slot_identity(child_key, child)}),
+      slot_kind: slot_kind(child_key),
+      supervisor_pid: parent,
+      child_pid: if(is_pid(child), do: child),
+      child_state: child_state(child),
+      child_type: normalize_child_type(type),
+      modules: normalize_modules(modules),
+      sequence: sequence,
+      coverage: coverage
+    }
+  end
+
+  defp slot_identity(:undefined, child) when is_pid(child) do
+    {:dynamic, child}
+  end
+
+  defp slot_identity(child_key, _child) do
+    {:stable, child_key}
+  end
+
+  defp slot_kind(:undefined) do
+    :dynamic
+  end
+
+  defp slot_kind(_child_key) do
+    :stable
+  end
+
+  defp normalize_child_type(type) when type in [:supervisor, :worker] do
+    type
+  end
+
+  defp normalize_child_type(_type) do
+    nil
+  end
+
+  defp normalize_modules(modules) when is_list(modules) do
+    modules
+    |> Enum.filter(&is_atom/1)
+    |> Enum.take(@module_limit)
+  end
+
+  defp normalize_modules(_modules) do
+    []
   end
 
   defp child_label(:undefined, [module | _modules]) when is_atom(module) do
