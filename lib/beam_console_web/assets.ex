@@ -1,6 +1,11 @@
-if Code.ensure_loaded?(Phoenix.Controller) do
+if Code.ensure_loaded?(Phoenix.Controller) and Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.Assets do
-    @moduledoc false
+    @moduledoc """
+    Serves BeamConsole's self-contained, digest-addressed browser assets.
+
+    Requests with stale or unknown digests return `404`; current assets are
+    immutable and can be cached indefinitely.
+    """
 
     use Phoenix.Controller, formats: []
 
@@ -38,175 +43,76 @@ if Code.ensure_loaded?(Phoenix.Controller) do
                       |> Base.encode16(case: :lower)
                       |> binary_part(0, 12)
 
-    @js """
-    import { Socket, LongPoll } from "../phoenix/#{@phoenix_digest}";
-    import { LiveSocket } from "../live-view/#{@live_view_digest}";
-    import cytoscape from "../cytoscape/#{@cytoscape_digest}";
+    @external_resource support_path = Path.join(@static_path, "beam_console_support.mjs")
+    @support File.read!(support_path)
+    @support_digest @support
+                    |> then(&:crypto.hash(:sha256, &1))
+                    |> Base.encode16(case: :lower)
+                    |> binary_part(0, 12)
 
-    const script = document.querySelector("script[data-beam-console-client]");
-    const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
-    const livePath = script?.dataset.livePath || "/live";
-    const transport = script?.dataset.liveTransport || "websocket";
+    @external_resource theme_path = Path.join(@static_path, "beam_console_theme.js")
+    @theme File.read!(theme_path)
+    @theme_digest @theme
+                  |> then(&:crypto.hash(:sha256, &1))
+                  |> Base.encode16(case: :lower)
+                  |> binary_part(0, 12)
 
-    const BeamConsoleGraph = {
-      mounted() {
-        this.sequence = 0;
-        this.focus = null;
-        this.topologySignature = null;
-        const computed = getComputedStyle(this.el);
-        const token = name => computed.getPropertyValue(name).trim();
-        const palette = {
-          surface: token("--bc-surface") || "#ffffff",
-          surfaceMuted: token("--bc-surface-muted") || "#fafafa",
-          surfaceRaised: token("--bc-surface-raised") || "#f4f4f5",
-          border: token("--bc-border") || "#e4e4e7",
-          borderStrong: token("--bc-border-strong") || "#d4d4d8",
-          text: token("--bc-text") || "#27272a",
-          muted: token("--bc-muted") || "#71717a",
-          accent: token("--bc-accent") || "#7c3aed",
-          accentSoft: token("--bc-accent-soft") || "#f5f3ff",
-          accentBorder: token("--bc-accent-border") || "#c4b5fd"
-        };
-        this.cy = cytoscape({
-          container: this.el,
-          elements: [],
-          style: [
-            { selector: "node", style: { width: 132, height: 32, shape: "round-rectangle", "background-color": palette.surface, "border-color": palette.borderStrong, "border-width": 1, label: "data(label)", color: palette.text, "font-size": 10, "font-weight": 500, "text-wrap": "ellipsis", "text-max-width": 112, "text-valign": "center", "text-halign": "center" } },
-            { selector: "node[kind = 'supervisor']", style: { "background-color": palette.accentSoft, "border-color": palette.accentBorder, "border-width": 1.5, "font-weight": 650 } },
-            { selector: "node[kind = 'application']", style: { width: 144, height: 36, "background-color": palette.surfaceRaised, "border-color": palette.borderStrong, "font-weight": 650 } },
-            { selector: "node[kind = 'node']", style: { width: 156, height: 38, "background-color": palette.text, "border-color": palette.text, color: palette.surface, "font-weight": 700 } },
-            { selector: "node:selected", style: { "background-color": palette.accent, "border-color": palette.accent, color: palette.surface, "border-width": 2 } },
-            { selector: "edge", style: { width: 1.25, "line-color": palette.borderStrong, "target-arrow-color": palette.borderStrong, "target-arrow-shape": "triangle", "arrow-scale": 0.7, "curve-style": "taxi", "taxi-direction": "downward", "taxi-turn": 18 } },
-            { selector: "edge[kind = 'contains'], edge[kind = 'owns']", style: { "line-style": "dashed", "line-color": palette.muted, "target-arrow-color": palette.muted } }
-          ]
-        });
-
-        this.cy.on("tap", "node", event => this.pushEvent("select_entity", { id: event.target.id() }));
-        this.handleEvent("beam_console_graph", payload => this.replaceGraph(payload));
-        this.pushEvent("request_graph", {});
-      },
-      destroyed() {
-        if (this.cy) this.cy.destroy();
-      },
-      replaceGraph(payload) {
-        if (!this.cy || !payload || payload.sequence < this.sequence) return;
-        const elements = payload.elements || [];
-        const topologySignature = JSON.stringify(elements.map(element => {
-          const data = element.data || {};
-          return [data.id, data.source || null, data.target || null, data.kind || null];
-        }));
-        const focusChanged = this.focus !== payload.focus;
-
-        if (topologySignature === this.topologySignature) {
-          this.updateElementData(elements);
-          this.updateSelection(payload.selected);
-          this.sequence = payload.sequence;
-          this.focus = payload.focus;
-          return;
-        }
-
-        if (this.sequence > 0 && !focusChanged) {
-          this.patchTopology(elements);
-        } else {
-          this.cy.elements().remove();
-          this.cy.add(elements);
-          this.cy.layout({ name: "breadthfirst", directed: true, animate: false, fit: false, padding: 44, spacingFactor: 1.1 }).run();
-          this.cy.fit(undefined, 36);
-        }
-
-        this.updateSelection(payload.selected);
-        this.sequence = payload.sequence;
-        this.focus = payload.focus;
-        this.topologySignature = topologySignature;
-      },
-      updateElementData(elements) {
-        elements.forEach(element => {
-          const existing = this.cy.$id(element.data.id);
-          if (existing.length) existing.data(element.data);
-        });
-      },
-      updateSelection(selected) {
-        this.cy.nodes().unselect();
-        if (selected) this.cy.$id(selected).select();
-      },
-      patchTopology(elements) {
-        const incomingIds = new Set(elements.map(element => element.data.id));
-        this.cy.elements().filter(element => !incomingIds.has(element.id())).remove();
-
-        const nodes = elements.filter(element => !element.data.source);
-        const edges = elements.filter(element => element.data.source);
-        const newNodeIds = [];
-
-        nodes.forEach(element => {
-          const existing = this.cy.$id(element.data.id);
-
-          if (existing.length) {
-            existing.data(element.data);
-          } else {
-            this.cy.add(element);
-            newNodeIds.push(element.data.id);
-          }
-        });
-
-        edges.forEach(element => {
-          const existing = this.cy.$id(element.data.id);
-          if (existing.length) existing.data(element.data);
-          else this.cy.add(element);
-        });
-
-        newNodeIds.forEach((nodeId, index) => {
-          const node = this.cy.$id(nodeId);
-          const incoming = edges.find(edge => edge.data.target === nodeId);
-          const parent = incoming && this.cy.$id(incoming.data.source);
-
-          if (parent && parent.length) {
-            const position = parent.position();
-            const offset = (index % 5 - 2) * 148;
-            node.position({ x: position.x + offset, y: position.y + 94 });
-          } else {
-            const extent = this.cy.extent();
-            node.position({ x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 });
-          }
-        });
-      }
-    };
-
-    const socketOptions = { params: { _csrf_token: csrfToken }, hooks: { BeamConsoleGraph } };
-    if (transport === "longpoll") socketOptions.transport = LongPoll;
-    const liveSocket = new LiveSocket(livePath, Socket, socketOptions);
-    liveSocket.connect();
-    window.beamConsoleLiveSocket = liveSocket;
-    """
+    @external_resource client_path = Path.join(@static_path, "beam_console.mjs")
+    @client_template File.read!(client_path)
+    @js @client_template
+        |> String.replace("__PHOENIX_DIGEST__", @phoenix_digest)
+        |> String.replace("__LIVE_VIEW_DIGEST__", @live_view_digest)
+        |> String.replace("__CYTOSCAPE_DIGEST__", @cytoscape_digest)
+        |> String.replace("__SUPPORT_DIGEST__", @support_digest)
     @js_digest @js
                |> then(&:crypto.hash(:sha256, &1))
                |> Base.encode16(case: :lower)
                |> binary_part(0, 12)
 
+    @doc "Returns the digest embedded in the current BeamConsole stylesheet URL."
     @spec css_digest() :: String.t()
     def css_digest do
       @css_digest
     end
 
+    @doc "Returns the digest embedded in the current BeamConsole client URL."
     @spec js_digest() :: String.t()
     def js_digest do
       @js_digest
     end
 
+    @doc "Returns the digest for the vendored Phoenix browser module."
     @spec phoenix_digest() :: String.t()
     def phoenix_digest do
       @phoenix_digest
     end
 
+    @doc "Returns the digest for the vendored Phoenix LiveView browser module."
     @spec live_view_digest() :: String.t()
     def live_view_digest do
       @live_view_digest
     end
 
+    @doc "Returns the digest for the vendored Cytoscape graph module."
     @spec cytoscape_digest() :: String.t()
     def cytoscape_digest do
       @cytoscape_digest
     end
 
+    @doc "Returns the digest for BeamConsole's browser support module."
+    @spec support_digest() :: String.t()
+    def support_digest do
+      @support_digest
+    end
+
+    @doc "Returns the digest for BeamConsole's first-paint theme bootstrap."
+    @spec theme_digest() :: String.t()
+    def theme_digest do
+      @theme_digest
+    end
+
+    @doc "Serves the stylesheet when the requested digest matches the current asset."
+    @spec css(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def css(%{params: %{"digest" => @css_digest}} = conn, _params) do
       send_asset(conn, "text/css", @css)
     end
@@ -215,6 +121,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
+    @doc "Serves the BeamConsole browser client when its digest matches."
+    @spec js(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def js(%{params: %{"digest" => @js_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @js)
     end
@@ -223,6 +131,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
+    @doc "Serves the vendored Phoenix browser module when its digest matches."
+    @spec phoenix(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def phoenix(%{params: %{"digest" => @phoenix_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @phoenix)
     end
@@ -231,6 +141,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
+    @doc "Serves the vendored LiveView browser module when its digest matches."
+    @spec live_view(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def live_view(%{params: %{"digest" => @live_view_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @live_view)
     end
@@ -239,6 +151,8 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
+    @doc "Serves the vendored Cytoscape module when its digest matches."
+    @spec cytoscape(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def cytoscape(%{params: %{"digest" => @cytoscape_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @cytoscape)
     end
@@ -247,6 +161,29 @@ if Code.ensure_loaded?(Phoenix.Controller) do
       send_resp(conn, 404, "Not Found")
     end
 
+    @doc "Serves BeamConsole's browser support module when its digest matches."
+    @spec support(Plug.Conn.t(), map()) :: Plug.Conn.t()
+    def support(%{params: %{"digest" => @support_digest}} = conn, _params) do
+      send_asset(conn, "text/javascript", @support)
+    end
+
+    def support(conn, _params) do
+      send_resp(conn, 404, "Not Found")
+    end
+
+    @doc "Serves BeamConsole's first-paint theme bootstrap when its digest matches."
+    @spec theme(Plug.Conn.t(), map()) :: Plug.Conn.t()
+    def theme(%{params: %{"digest" => @theme_digest}} = conn, _params) do
+      send_asset(conn, "text/javascript", @theme)
+    end
+
+    def theme(conn, _params) do
+      send_resp(conn, 404, "Not Found")
+    end
+
+    # The content type and body are compile-time module attributes selected by
+    # fixed controller actions; request data cannot reach either argument.
+    # sobelow_skip ["XSS.ContentType", "XSS.SendResp"]
     defp send_asset(conn, content_type, body) do
       conn
       |> put_resp_content_type(content_type)

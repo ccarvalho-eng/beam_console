@@ -1,11 +1,14 @@
 if Code.ensure_loaded?(Phoenix.Component) do
   defmodule BeamConsoleWeb.Layouts do
-    @moduledoc false
+    @moduledoc """
+    Renders BeamConsole's isolated HTML document and digest-addressed assets.
+    """
 
     use Phoenix.Component
 
     alias BeamConsoleWeb.Assets
 
+    @doc "Renders the root layout for an embedded BeamConsole LiveView session."
     @spec root(map()) :: Phoenix.LiveView.Rendered.t()
     def root(assigns) do
       prefix = assigns[:prefix] || ""
@@ -14,6 +17,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
         assigns
         |> assign_new(:prefix, fn -> "" end)
         |> assign(:css_path, asset_path(prefix, "css", Assets.css_digest()))
+        |> assign(:theme_path, asset_path(prefix, "theme", Assets.theme_digest()))
         |> assign(:js_path, asset_path(prefix, "js", Assets.js_digest()))
 
       ~H"""
@@ -23,7 +27,11 @@ if Code.ensure_loaded?(Phoenix.Component) do
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <meta name="csrf-token" content={Phoenix.Controller.get_csrf_token()} />
-          <title>BeamConsole · Process Map</title>
+          <.live_title default="Process Map" prefix="BeamConsole · ">
+            {@page_title}
+          </.live_title>
+          <script src={@theme_path}>
+          </script>
           <link rel="stylesheet" href={@css_path} />
           <script
             type="module"
@@ -31,6 +39,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             data-beam-console-client
             data-live-path={@live_path}
             data-live-transport={@live_transport}
+            data-console-prefix={@prefix}
           >
           </script>
         </head>

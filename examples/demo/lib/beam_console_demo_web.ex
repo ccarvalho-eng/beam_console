@@ -17,8 +17,14 @@ defmodule BeamConsoleDemoWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  @doc "Returns the demo assets that Phoenix can serve as static files."
+  @spec static_paths() :: [String.t()]
+  def static_paths do
+    ~w(assets fonts images favicon.ico robots.txt)
+  end
 
+  @doc "Defines imports used by the demo router."
+  @spec router() :: Macro.t()
   def router do
     quote do
       use Phoenix.Router, helpers: false
@@ -30,12 +36,16 @@ defmodule BeamConsoleDemoWeb do
     end
   end
 
+  @doc "Defines the demo channel base module."
+  @spec channel() :: Macro.t()
   def channel do
     quote do
       use Phoenix.Channel
     end
   end
 
+  @doc "Defines the demo controller base module."
+  @spec controller() :: Macro.t()
   def controller do
     quote do
       use Phoenix.Controller, formats: [:html, :json]
@@ -46,6 +56,8 @@ defmodule BeamConsoleDemoWeb do
     end
   end
 
+  @doc "Defines the demo LiveView base module."
+  @spec live_view() :: Macro.t()
   def live_view do
     quote do
       use Phoenix.LiveView
@@ -54,6 +66,8 @@ defmodule BeamConsoleDemoWeb do
     end
   end
 
+  @doc "Defines the demo live-component base module."
+  @spec live_component() :: Macro.t()
   def live_component do
     quote do
       use Phoenix.LiveComponent
@@ -62,6 +76,8 @@ defmodule BeamConsoleDemoWeb do
     end
   end
 
+  @doc "Defines the demo HTML component base module."
+  @spec html() :: Macro.t()
   def html do
     quote do
       use Phoenix.Component
@@ -91,6 +107,8 @@ defmodule BeamConsoleDemoWeb do
     end
   end
 
+  @doc "Defines verified-route helpers for the demo endpoint and router."
+  @spec verified_routes() :: Macro.t()
   def verified_routes do
     quote do
       use Phoenix.VerifiedRoutes,
@@ -103,6 +121,7 @@ defmodule BeamConsoleDemoWeb do
   @doc """
   When used, dispatch to the appropriate controller/live_view/etc.
   """
+  @spec __using__(atom()) :: Macro.t()
   defmacro __using__(which) when is_atom(which) do
     apply(__MODULE__, which, [])
   end

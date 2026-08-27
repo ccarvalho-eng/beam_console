@@ -1,8 +1,31 @@
 defmodule BeamConsole.EntityId do
-  @moduledoc false
+  @moduledoc """
+  Builds stable, opaque identifiers and bounded labels for runtime entities.
 
-  @prefixes %{application: "app", edge: "edge", node: "node", process: "proc"}
+  IDs are safe to place in URLs and browser DOM attributes. They deliberately
+  avoid accepting encoded Erlang terms back from clients.
+  """
 
+  @prefixes %{
+    application: "app",
+    edge: "edge",
+    event: "event",
+    node: "node",
+    process: "proc",
+    slot: "slot"
+  }
+
+  @doc """
+  Builds a deterministic, kind-prefixed identifier from an Erlang term.
+
+  ## Examples
+
+      iex> id = BeamConsole.EntityId.build(:application, :logger)
+      iex> String.starts_with?(id, "app_")
+      true
+      iex> id == BeamConsole.EntityId.build(:application, :logger)
+      true
+  """
   @spec build(atom(), term()) :: String.t()
   def build(kind, identity) when is_map_key(@prefixes, kind) do
     digest =
@@ -14,6 +37,20 @@ defmodule BeamConsole.EntityId do
     Map.fetch!(@prefixes, kind) <> "_" <> binary_part(digest, 0, 22)
   end
 
+  @doc """
+  Converts a safe runtime value into a bounded display label.
+
+  Values outside the allowlisted scalar types are rendered as opaque children.
+
+  ## Examples
+
+      iex> BeamConsole.EntityId.label(:worker)
+      "worker"
+      iex> BeamConsole.EntityId.label("abcdefgh", 4)
+      "abcd…"
+      iex> BeamConsole.EntityId.label({:private, :term})
+      "opaque child"
+  """
   @spec label(term(), non_neg_integer()) :: String.t()
   def label(value, limit \\ 96)
 
@@ -42,11 +79,38 @@ defmodule BeamConsole.EntityId do
     "opaque child"
   end
 
-  defp truncate(value, limit) when byte_size(value) <= limit do
-    value
+  defp truncate(value, limit) do
+    limit = max(limit, 0)
+
+    cond do
+      String.valid?(value) and byte_size(value) <= limit ->
+        value
+
+      String.valid?(value) ->
+        grapheme_prefix(value, limit, "") <> "…"
+
+      true ->
+        placeholder = "binary(#{byte_size(value)} bytes)"
+
+        if byte_size(placeholder) <= limit do
+          placeholder
+        else
+          grapheme_prefix(placeholder, limit, "") <> "…"
+        end
+    end
   end
 
-  defp truncate(value, limit) do
-    binary_part(value, 0, limit) <> "…"
+  defp grapheme_prefix(_value, 0, result) do
+    result
+  end
+
+  defp grapheme_prefix(value, remaining, result) do
+    case String.next_grapheme(value) do
+      {grapheme, rest} when byte_size(grapheme) <= remaining ->
+        grapheme_prefix(rest, remaining - byte_size(grapheme), result <> grapheme)
+
+      _complete_or_too_large ->
+        result
+    end
   end
 end

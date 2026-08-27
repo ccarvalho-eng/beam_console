@@ -1,0 +1,407 @@
+.beam-console-body {
+  margin: 0;
+  background: #f4f4f5;
+}
+
+.beam-console-shell,
+.beam-console-shell * {
+  box-sizing: border-box;
+}
+
+.beam-console-shell {
+  --bc-bg: #f4f4f5;
+  --bc-surface: #ffffff;
+  --bc-surface-muted: #fafafa;
+  --bc-surface-raised: #f4f4f5;
+  --bc-border: #e4e4e7;
+  --bc-border-strong: #d4d4d8;
+  --bc-text: #27272a;
+  --bc-muted: #71717a;
+  --bc-subtle: #a1a1aa;
+  --bc-accent: #7c3aed;
+  --bc-accent-soft: #f5f3ff;
+  --bc-accent-border: #c4b5fd;
+  --bc-success: #16a34a;
+  --bc-chart-two: #0891b2;
+  --bc-chart-three: #ca8a04;
+  --bc-chart-four: #dc2626;
+  --bc-chart-five: #16a34a;
+  --bc-panel-header-height: 60px;
+  min-height: 100vh;
+  padding: 20px;
+  background: var(--bc-bg);
+  color: var(--bc-text);
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] .beam-console-body {
+  background: #09090b;
+}
+
+:root[data-theme="dark"] .beam-console-shell {
+  --bc-bg: #09090b;
+  --bc-surface: #18181b;
+  --bc-surface-muted: #111113;
+  --bc-surface-raised: #27272a;
+  --bc-border: #27272a;
+  --bc-border-strong: #3f3f46;
+  --bc-text: #f4f4f5;
+  --bc-muted: #a1a1aa;
+  --bc-subtle: #71717a;
+  --bc-accent: #a78bfa;
+  --bc-accent-soft: #2e2442;
+  --bc-accent-border: #6d5a96;
+  --bc-success: #4ade80;
+  --bc-chart-two: #22d3ee;
+  --bc-chart-three: #facc15;
+  --bc-chart-four: #f87171;
+  --bc-chart-five: #4ade80;
+  color-scheme: dark;
+}
+
+.beam-console-shell button,
+.beam-console-shell input {
+  font: inherit;
+}
+
+.beam-console-frame {
+  display: grid;
+  grid-template-columns: 252px minmax(520px, 1fr) 332px;
+  grid-template-rows: 68px minmax(700px, calc(100vh - 108px));
+  max-width: 1680px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--bc-border);
+  border-radius: 10px;
+  background: var(--bc-surface);
+  box-shadow: 0 1px 2px rgb(24 24 27 / 0.04), 0 14px 40px rgb(24 24 27 / 0.06);
+}
+
+.beam-console-header {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--bc-border);
+  background: var(--bc-surface);
+}
+
+.beam-console-brand,
+.beam-console-actions,
+.beam-console-heading-line,
+.beam-console-link-label,
+.beam-console-detail-heading,
+.beam-console-legend,
+.beam-console-status {
+  display: flex;
+  align-items: center;
+}
+
+.beam-console-edge-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-edge-toggle button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bc-muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.beam-console-edge-toggle button.is-active {
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  box-shadow: 0 1px 2px rgb(24 24 27 / 0.08);
+}
+
+.beam-console-relation-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bc-accent);
+  cursor: pointer;
+  font: inherit;
+}
+
+.beam-console-brand {
+  flex: 1 1 0;
+  gap: 11px;
+  min-width: 0;
+}
+
+.beam-console-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: var(--bc-surface-muted);
+  color: var(--bc-accent);
+}
+
+.beam-console-mark svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+.beam-console-eyebrow,
+.beam-console-kicker {
+  margin: 0;
+  color: var(--bc-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.beam-console-title {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.beam-console-actions {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  gap: 9px;
+  min-width: 0;
+}
+
+.beam-console-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--bc-border);
+  border-radius: 7px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-tab {
+  padding: 6px 9px;
+  border-radius: 5px;
+  color: var(--bc-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.beam-console-tab:hover {
+  color: var(--bc-text);
+}
+
+.beam-console-tab.is-active {
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bc-text), transparent 90%);
+}
+
+.beam-console-status {
+  gap: 7px;
+  margin-right: 4px;
+  color: var(--bc-muted);
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.beam-console-status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bc-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bc-success), transparent 86%);
+  content: "";
+}
+
+.beam-console-status.is-loading::before {
+  background: var(--bc-subtle);
+  box-shadow: none;
+  animation: beam-console-pulse 1.2s ease-in-out infinite;
+}
+
+.beam-console-status.is-stale::before {
+  background: #d97706;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #d97706, transparent 86%);
+}
+
+.beam-console-search-form {
+  position: relative;
+  width: min(340px, 34vw);
+}
+
+.beam-console-search-form.is-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.beam-console-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  stroke: var(--bc-subtle);
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  pointer-events: none;
+}
+
+.beam-console-search {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 7px;
+  outline: 0;
+  background: var(--bc-surface-muted);
+  color: var(--bc-text);
+  font-size: 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.beam-console-search::placeholder {
+  color: var(--bc-subtle);
+}
+
+.beam-console-search:focus {
+  border-color: var(--bc-accent-border);
+  background: var(--bc-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bc-accent), transparent 90%);
+}
+
+.beam-console-icon-button {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 7px;
+  background: var(--bc-surface-muted);
+  color: var(--bc-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.beam-console-icon-button:hover {
+  border-color: var(--bc-subtle);
+  background: var(--bc-surface-raised);
+  color: var(--bc-text);
+}
+
+.beam-console-icon-button:active {
+  transform: translateY(1px);
+}
+
+.beam-console-icon-button svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.beam-console-icon-button.is-pending svg {
+  animation: beam-console-spin 800ms linear infinite;
+}
+
+.beam-console-icon-button.is-recording {
+  border-color: color-mix(in srgb, var(--bc-success), transparent 62%);
+  color: var(--bc-success);
+}
+
+.beam-console-theme-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  height: 36px;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 7px;
+  background: var(--bc-surface-muted);
+}
+
+.beam-console-theme-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bc-subtle);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.beam-console-theme-button:hover {
+  color: var(--bc-text);
+}
+
+.beam-console-theme-button.is-active {
+  background: var(--bc-surface);
+  color: var(--bc-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bc-text), transparent 88%);
+}
+
+.beam-console-theme-button svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.beam-console-icon-button[data-tooltip]::after {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  padding: 5px 7px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 5px;
+  background: var(--bc-text);
+  color: var(--bc-surface);
+  content: attr(data-tooltip);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: nowrap;
+}
+
+.beam-console-icon-button[data-tooltip]:hover::after,
+.beam-console-icon-button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+

@@ -1,31 +1,162 @@
 # BeamConsole
 
-BeamConsole is an embeddable, read-only process map for Phoenix and BEAM applications.
+BeamConsole is an embeddable, read-only process flight recorder and process map for Phoenix and BEAM applications. It makes supervision, process relationships, lifecycle changes, per-process activity, and node-wide runtime health visible without application-specific instrumentation.
 
-The first development slice inspects the local BEAM node, shows connected-node inventory, applications, supervision relationships, processes, and safe process details. Runtime changes are sampled, so lifecycle events are described as observed rather than lossless.
+## Installation
 
-## Phoenix installation
+Add BeamConsole to a Phoenix application:
 
 ```elixir
 def deps do
   [
-    {:beam_console, path: "../beam_console"}
+    {:beam_console, "~> 0.1.0"}
   ]
 end
 ```
 
-Mount the console inside a development-only router block:
+Import and mount it from the host router. The route is disabled outside development by default.
 
 ```elixir
-if Application.compile_env(:my_app, :beam_console_enabled, false) do
+defmodule MyAppWeb.Router do
+  use MyAppWeb, :router
+
+  import BeamConsole.Router
+
   scope "/" do
     pipe_through :browser
-    beam_console "/beam", enabled: true
+    beam_console "/beam"
   end
 end
 ```
 
-The host application owns authentication and authorization. Do not expose process metadata publicly.
+Visit `/beam` after restarting the host application. A different Phoenix server port can be supplied through the host application's usual endpoint environment configuration; BeamConsole does not own the HTTP listener.
+
+### Plain Elixir applications
+
+The dependency also starts its bounded collector and recorder in applications without Phoenix. Those applications can consume normalized snapshots and recorder queries directly; the embedded web interface is available only when Phoenix and LiveView are installed by the host.
+
+```elixir
+{:ok, latest_snapshot} = BeamConsole.subscribe()
+:ok = BeamConsole.refresh()
+
+receive do
+  {:beam_console_snapshot, sequence} ->
+    snapshot = BeamConsole.latest_snapshot()
+    :ok = BeamConsole.acknowledge(sequence)
+end
+
+status = BeamConsole.Recorder.status()
+events = BeamConsole.Recorder.events(limit: 100)
+```
+
+Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer needs updates. Subscribers are also removed automatically when their process terminates.
+
+## What it shows
+
+- Process Map: a stable, focused supervision graph with optional process links and monitors, plus a searchable process explorer.
+- Lifecycle: observed process starts, terminations, and replacement correlations with explicit evidence and coverage language.
+- Activity: reductions per second, mailbox growth, memory movement, and ranked process movers.
+- Runtime: BEAM memory categories, run queue, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
+- Inspector: allowlisted process, application, and node details. Process relationships are clickable when their target is present in the latest sample.
+
+Applications are grouped into host, dependencies, OTP, and tooling categories. Every tree branch can be collapsed and its state remains stable while LiveView updates.
+
+## Recording model
+
+The default `:subscribers` mode records while at least one BeamConsole page is connected. The header control pauses and resumes recording explicitly. Retained samples remain bounded by age, item count, chart point count, and estimated bytes.
+
+To begin recording when the application starts, even before anyone opens the page:
+
+```elixir
+config :beam_console, :recorder,
+  mode: :always
+```
+
+Lifecycle recording is observational rather than a lossless trace. Sampling gaps, partial supervision traversal, process limits, watch limits, and dropped history are surfaced in the interface instead of being hidden.
+
+## Access control
+
+BeamConsole deliberately does not ship a production authentication system. The host application owns exposure, authentication, and authorization. Do not expose runtime metadata publicly.
+
+Use the host browser pipeline for plug-based authorization. For LiveView authorization, pass existing `on_mount` hooks to the embedded live session:
+
+```elixir
+beam_console "/beam",
+  enabled: true,
+  on_mount: [{MyAppWeb.UserAuth, :ensure_admin}]
+```
+
+When an authorization hook needs host session values, merge a static string-keyed map or a session callback. The callback receives the connection as its first argument.
+
+```elixir
+beam_console "/beam",
+  enabled: true,
+  session: {MyAppWeb.BeamConsoleSession, :build, []},
+  on_mount: [{MyAppWeb.UserAuth, :ensure_admin}]
+
+defmodule MyAppWeb.BeamConsoleSession do
+  def build(conn) do
+    %{"current_user_id" => Plug.Conn.get_session(conn, :current_user_id)}
+  end
+end
+```
+
+Host authorization hooks run before BeamConsole's internal mount hook. Reserved transport and mount keys cannot be overridden by the host session callback.
+
+LiveView sessions are signed but not encrypted. Return only the minimal identifiers and authorization context required by the hook; never return secrets, credentials, or the complete host session.
+
+### Router options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `:enabled` | `Mix.env() == :dev` | Controls whether BeamConsole routes are mounted. |
+| `:as` | `:beam_console` | Names the LiveView session and route helpers. Use a distinct atom for each mount. |
+| `:on_mount` | `[]` | Adds host authentication or authorization hooks before BeamConsole's hook. |
+| `:session` | `nil` | Merges a string-keyed map or `{module, function, arguments}` callback result into the LiveView session. |
+| `:socket_path` | `"/live"` | Selects the host endpoint's LiveView socket path. It must match the endpoint configuration. |
+| `:transport` | `"websocket"` | Selects `"websocket"` or `"longpoll"`. The endpoint must enable the same transport. |
+
+Endpoint URL paths and Phoenix forwarding prefixes from `conn.script_name` are applied automatically to navigation and asset paths. Set `:socket_path` to the endpoint socket's externally reachable path when a proxy also prefixes WebSocket or long-poll requests.
+
+For example, a host that exposes a long-poll-only socket at `/internal/live` mounts BeamConsole with matching connection settings:
+
+```elixir
+beam_console "/beam",
+  socket_path: "/internal/live",
+  transport: "longpoll"
+```
+
+## Configuration
+
+Collector settings are bounded and reject unknown keys:
+
+```elixir
+config :beam_console, :collector,
+  interval: 2_000,
+  scan_timeout: 1_500,
+  process_limit: 20_000,
+  supervisor_limit: 2_000,
+  relationship_limit: 200
+```
+
+Recorder retention can also be tuned explicitly:
+
+```elixir
+config :beam_console, :recorder,
+  retention_ms: 15 * 60_000,
+  frame_limit: 450,
+  event_limit: 1_000,
+  chart_points_limit: 240,
+  byte_limit: 8 * 1_024 * 1_024
+```
+
+## Safety boundary
+
+BeamConsole does not fetch process messages, dictionaries, stacktraces, binaries, or arbitrary process state. It does not use `:sys`, tracing, remote RPC, or process mutation. Browser inputs are matched against fixed allowlists and opaque entity IDs are revalidated against the latest snapshot.
+
+## Compared with Observer and Phoenix LiveDashboard
+
+Observer is a broad Erlang runtime desktop tool. Phoenix LiveDashboard is a Phoenix-focused operational dashboard built around metrics and framework integrations. BeamConsole is narrower: it is an embeddable, process-first tool focused on supervision topology, observed crash-and-replacement history, process relationships, and bounded activity over time.
 
 ## Demo
 
@@ -37,8 +168,8 @@ mix deps.get
 mix phx.server
 ```
 
-Then visit `/lab` for deterministic sample controls or `/beam` for BeamConsole.
+Visit `/lab` for deterministic sample controls or `/beam` for BeamConsole.
 
-## Current safety boundary
+## License
 
-BeamConsole does not fetch process messages, dictionaries, stacktraces, binaries, or arbitrary state. It does not use `:sys`, tracing, remote RPC, or process mutation.
+BeamConsole is available under the Apache License 2.0. See `LICENSE` and `THIRD_PARTY_NOTICES`.

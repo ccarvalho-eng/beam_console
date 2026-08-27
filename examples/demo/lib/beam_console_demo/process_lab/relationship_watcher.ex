@@ -5,26 +5,30 @@ defmodule BeamConsoleDemo.ProcessLab.RelationshipWatcher do
 
   @processor BeamConsoleDemo.ProcessLab.PaymentProcessor
 
+  @doc "Starts the process that monitors the demo payment processor."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do
     GenServer.start_link(__MODULE__, options, name: __MODULE__)
   end
 
+  @doc "Returns the payment processor currently monitored by the watcher."
+  @spec monitored_pid() :: pid() | nil
   def monitored_pid do
     GenServer.call(__MODULE__, :monitored_pid)
   end
 
-  @impl true
+  @impl GenServer
   def init(_options) do
     {:ok, attach_monitor(%{monitor_pid: nil, monitor_ref: nil})}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:monitored_pid, _from, state) do
     state = if state.monitor_ref, do: state, else: attach_monitor(state)
     {:reply, state.monitor_pid, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:DOWN, reference, :process, _pid, _reason}, %{monitor_ref: reference} = state) do
     Process.send_after(self(), :reattach, 25)
     {:noreply, %{state | monitor_pid: nil, monitor_ref: nil}}

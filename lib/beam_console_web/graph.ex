@@ -1,11 +1,26 @@
 if Code.ensure_loaded?(Phoenix.LiveView) do
   defmodule BeamConsoleWeb.Graph do
-    @moduledoc false
+    @moduledoc """
+    Converts normalized runtime snapshots into bounded Cytoscape graph data.
 
+    The payload keeps browser-facing values scalar and limits the visible
+    process count so large runtimes remain navigable.
+    """
+
+    alias BeamConsole.EntityId
     alias BeamConsole.Snapshot
 
     @process_limit 160
+    @relationship_target_limit 40
 
+    @type payload_options :: [
+            selected_id: String.t() | nil,
+            focus_id: String.t() | nil,
+            edge_preset: String.t(),
+            selected_detail: map() | nil
+          ]
+
+    @doc "Returns the application ID with the largest observed supervision tree."
     @spec default_focus_id(Snapshot.t()) :: String.t() | nil
     def default_focus_id(%Snapshot{} = snapshot) do
       case largest_supervision_application(snapshot) do
@@ -14,11 +29,24 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end
     end
 
-    @spec payload(Snapshot.t(), String.t() | nil, String.t() | nil) :: map()
-    def payload(%Snapshot{} = snapshot, selected_id, focus_id \\ nil) do
+    @doc "Builds a bounded graph payload around the selected or focused application."
+    @spec payload(Snapshot.t(), payload_options()) :: map()
+    def payload(%Snapshot{} = snapshot, options \\ []) when is_list(options) do
+      selected_id = Keyword.get(options, :selected_id)
+      focus_id = Keyword.get(options, :focus_id)
+      edge_preset = Keyword.get(options, :edge_preset, "supervision")
+      selected_detail = Keyword.get(options, :selected_detail)
       local_node = Map.fetch!(snapshot.nodes, snapshot.local_node_id)
       focus_application = focus_application(snapshot, selected_id, focus_id)
-      processes = focused_processes(snapshot, focus_application, selected_id)
+      focused_processes = focused_processes(snapshot, focus_application, selected_id)
+
+      relationship_processes =
+        relationship_processes(snapshot, selected_detail, edge_preset, selected_id)
+
+      relationship_ids = MapSet.new(relationship_processes, & &1.id)
+      focused_processes = Enum.reject(focused_processes, &MapSet.member?(relationship_ids, &1.id))
+      focus_limit = max(@process_limit - length(relationship_processes), 0)
+      processes = Enum.take(focused_processes, focus_limit) ++ relationship_processes
       supervisor_ids = supervisor_ids(snapshot)
 
       node_elements = [node_element(local_node.id, local_node.name, "node")]
@@ -37,14 +65,23 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
       hierarchy_edges = hierarchy_edges(snapshot, focus_application, included_ids)
       supervision_edges = supervision_edges(snapshot, included_ids)
+      relationship_edges = relationship_edges(selected_detail, included_ids, edge_preset)
+      omitted_focus_nodes = max(length(focused_processes) - focus_limit, 0)
+
+      omitted_relationship_nodes =
+        omitted_relationship_nodes(snapshot, selected_detail, edge_preset)
 
       %{
+        epoch: snapshot.collector_epoch,
         sequence: snapshot.sequence,
         focus: focus_application && Atom.to_string(focus_application.name),
         selected: selected_if_visible(selected_id, included_ids),
+        omitted_nodes: omitted_focus_nodes,
+        omitted_relationships: omitted_relationship_nodes,
         elements:
           node_elements ++
-            application_elements ++ process_elements ++ hierarchy_edges ++ supervision_edges
+            application_elements ++
+            process_elements ++ hierarchy_edges ++ supervision_edges ++ relationship_edges
       }
     end
 
@@ -114,7 +151,151 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           process.id == application.root_supervisor_id
       end)
       |> Enum.sort_by(&{&1.label, &1.id})
-      |> Enum.take(@process_limit)
+    end
+
+    defp relationship_edges(_detail, _included_ids, "supervision") do
+      []
+    end
+
+    defp relationship_edges(%{id: source_id} = detail, included_ids, "relationships") do
+      (link_edges(source_id, detail.links, included_ids) ++
+         monitor_edges(source_id, detail.monitors, included_ids) ++
+         monitored_by_edges(source_id, Map.get(detail, :monitored_by, []), included_ids))
+      |> Enum.uniq_by(& &1.data.id)
+      |> Enum.sort_by(& &1.data.id)
+    end
+
+    defp relationship_edges(_processes, _included_ids, _preset) do
+      []
+    end
+
+    defp link_edges(source_id, relations, included_ids) do
+      relations
+      |> relation_ids()
+      |> Enum.filter(&valid_relation?(source_id, &1, included_ids))
+      |> Enum.map(fn target_id ->
+        [source, target] = Enum.sort([source_id, target_id])
+        edge_element(EntityId.build(:edge, {:link, source, target}), source, target, "links")
+      end)
+    end
+
+    defp monitor_edges(source_id, relations, included_ids) do
+      relations
+      |> relation_ids()
+      |> Enum.filter(&valid_relation?(source_id, &1, included_ids))
+      |> Enum.map(fn target_id ->
+        edge_element(
+          EntityId.build(:edge, {:monitor, source_id, target_id}),
+          source_id,
+          target_id,
+          "monitors"
+        )
+      end)
+    end
+
+    defp monitored_by_edges(target_id, relations, included_ids) do
+      relations
+      |> relation_ids()
+      |> Enum.filter(&valid_relation?(target_id, &1, included_ids))
+      |> Enum.map(fn source_id ->
+        edge_element(
+          EntityId.build(:edge, {:monitor, source_id, target_id}),
+          source_id,
+          target_id,
+          "monitors"
+        )
+      end)
+    end
+
+    defp relationship_processes(snapshot, detail, "relationships", selected_id) do
+      detail
+      |> all_relation_ids()
+      |> Enum.reject(&(&1 == selected_id))
+      |> Enum.flat_map(fn relation_id ->
+        case Map.get(snapshot.processes, relation_id) do
+          nil -> []
+          process -> [process]
+        end
+      end)
+      |> Enum.uniq_by(& &1.id)
+      |> Enum.sort_by(&{&1.label, &1.id})
+      |> Enum.take(@relationship_target_limit)
+    end
+
+    defp relationship_processes(_snapshot, _detail, _preset, _selected_id) do
+      []
+    end
+
+    defp omitted_relationship_nodes(_snapshot, nil, "relationships") do
+      0
+    end
+
+    defp omitted_relationship_nodes(snapshot, detail, "relationships") do
+      available_ids =
+        detail
+        |> all_relation_ids()
+        |> Enum.reject(&(&1 == detail.id))
+        |> Enum.uniq()
+
+      available = Enum.count(available_ids, &Map.has_key?(snapshot.processes, &1))
+
+      unavailable =
+        detail
+        |> all_relations()
+        |> Enum.count(&(not graphable_relation?(&1, snapshot, detail.id)))
+
+      raw_omitted = relationship_omitted(detail)
+
+      raw_omitted + unavailable + max(available - @relationship_target_limit, 0)
+    end
+
+    defp omitted_relationship_nodes(_snapshot, _detail, _preset) do
+      0
+    end
+
+    defp all_relation_ids(nil) do
+      []
+    end
+
+    defp all_relation_ids(detail) do
+      detail |> all_relations() |> relation_ids()
+    end
+
+    defp all_relations(nil) do
+      []
+    end
+
+    defp all_relations(detail) do
+      detail.links ++ detail.monitors ++ Map.get(detail, :monitored_by, [])
+    end
+
+    defp relationship_omitted(detail) do
+      detail
+      |> Map.get(:relationship_omitted, %{})
+      |> Map.take([:links, :monitors, :monitored_by])
+      |> Map.values()
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
+    end
+
+    defp relation_ids(relations) do
+      Enum.flat_map(relations, fn
+        %{id: id, kind: :process} when is_binary(id) -> [id]
+        _relation -> []
+      end)
+    end
+
+    defp graphable_relation?(%{id: id, kind: :process}, snapshot, selected_id)
+         when is_binary(id) do
+      id != selected_id and Map.has_key?(snapshot.processes, id)
+    end
+
+    defp graphable_relation?(_relation, _snapshot, _selected_id) do
+      false
+    end
+
+    defp valid_relation?(source_id, target_id, included_ids) do
+      source_id != target_id and MapSet.member?(included_ids, target_id)
     end
 
     defp application_elements(_snapshot, nil) do

@@ -1,5 +1,5 @@
 defmodule BeamConsoleDemo.ProcessLab do
-  @moduledoc false
+  @moduledoc "Provides bounded controls for creating visible process-lifecycle activity in the demo."
 
   alias BeamConsoleDemo.ProcessLab.EphemeralWorker
   alias BeamConsoleDemo.ProcessLab.QueueWorker
@@ -9,6 +9,15 @@ defmodule BeamConsoleDemo.ProcessLab do
   @queue_worker BeamConsoleDemo.ProcessLab.QueueWorker
   @task_supervisor BeamConsoleDemo.ProcessLab.TaskSupervisor
 
+  @type process_summary :: %{alive?: boolean(), mailbox: non_neg_integer(), pid: String.t()}
+  @type snapshot :: %{
+          dynamic_children: non_neg_integer(),
+          processor: process_summary(),
+          queue_worker: process_summary()
+        }
+
+  @doc "Returns a scalar summary of the demo processes."
+  @spec snapshot() :: snapshot()
   def snapshot do
     dynamic_children = DynamicSupervisor.which_children(@dynamic_supervisor)
 
@@ -19,11 +28,15 @@ defmodule BeamConsoleDemo.ProcessLab do
     }
   end
 
+  @doc "Starts one temporary child under the demo dynamic supervisor."
+  @spec start_dynamic_child() :: DynamicSupervisor.on_start_child()
   def start_dynamic_child do
     child_id = System.unique_integer([:positive, :monotonic])
     DynamicSupervisor.start_child(@dynamic_supervisor, {EphemeralWorker, child_id})
   end
 
+  @doc "Stops one temporary child when one is available."
+  @spec stop_dynamic_child() :: :ok | {:error, :not_found}
   def stop_dynamic_child do
     case DynamicSupervisor.which_children(@dynamic_supervisor) do
       [{_id, pid, _type, _modules} | _rest] when is_pid(pid) ->
@@ -34,6 +47,8 @@ defmodule BeamConsoleDemo.ProcessLab do
     end
   end
 
+  @doc "Crashes the named payment processor so its supervisor replaces it."
+  @spec restart_processor() :: :ok | {:error, :not_found}
   def restart_processor do
     case Process.whereis(@processor) do
       nil ->
@@ -45,10 +60,14 @@ defmodule BeamConsoleDemo.ProcessLab do
     end
   end
 
+  @doc "Queues bounded CPU work to demonstrate mailbox growth and drain."
+  @spec grow_mailbox(1..500) :: :ok
   def grow_mailbox(count \\ 250) when is_integer(count) and count in 1..500 do
     QueueWorker.enqueue(@queue_worker, count)
   end
 
+  @doc "Starts a bounded batch of short-lived supervised tasks."
+  @spec spawn_short_tasks(1..50) :: :ok | {:error, :task_start_failed}
   def spawn_short_tasks(count \\ 20) when is_integer(count) and count in 1..50 do
     results =
       Enum.map(1..count, fn task_number ->

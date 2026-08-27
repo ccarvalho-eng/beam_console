@@ -7,9 +7,13 @@ _build/
 # The directory Mix downloads your dependencies sources to.
 /deps/
 /assets/node_modules/
+/fixtures/**/_build/
+/fixtures/**/deps/
+/fixtures/**/mix.lock
 
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
+/priv/plts/
 
 # Temporary files, for example, from tests.
 /tmp/

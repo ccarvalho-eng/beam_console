@@ -1,5 +1,10 @@
 defmodule BeamConsole.Runtime.Local do
-  @moduledoc false
+  @moduledoc """
+  Collects bounded topology and process details from the local BEAM node.
+
+  The adapter uses standard OTP/runtime APIs and normalizes their results into
+  safe BeamConsole structs. Connected nodes are listed but are not queried.
+  """
 
   @behaviour BeamConsole.Runtime.Adapter
 
@@ -10,8 +15,11 @@ defmodule BeamConsole.Runtime.Local do
   alias BeamConsole.NodeInfo
   alias BeamConsole.ProcessDetail
   alias BeamConsole.ProcessInfo
+  alias BeamConsole.ProcessRelation
+  alias BeamConsole.Runtime.Sample, as: RuntimeSample
+  alias BeamConsole.Runtime.ProcessSelector
+  alias BeamConsole.Runtime.Supervision
   alias BeamConsole.Snapshot
-  alias BeamConsole.SupervisionEdge
 
   @process_fields [
     :registered_name,
@@ -24,50 +32,75 @@ defmodule BeamConsole.Runtime.Local do
 
   @detail_fields @process_fields ++ [:current_function, :links, :monitors, :monitored_by]
 
-  @impl true
+  @impl BeamConsole.Runtime.Adapter
   def snapshot(options) do
     started_at = System.monotonic_time(:millisecond)
     sequence = Keyword.get(options, :sequence, 1)
     local_node = node()
     local_node_id = EntityId.build(:node, local_node)
     process_limit = Config.get(options, :process_limit)
-    all_pids = Process.list() |> Enum.sort()
+    all_pids = Process.list()
 
     selected_pids =
       all_pids
       |> Enum.reject(&(&1 == self()))
-      |> Enum.take(process_limit)
+      |> ProcessSelector.select(process_limit)
 
     {processes, vanished} = collect_processes(selected_pids, local_node, local_node_id)
+
     {applications, roots} = collect_applications(local_node, local_node_id)
 
-    {edges, supervision_attribution, partial_supervisors, traversal_limit_reached?} =
-      collect_supervision(roots, local_node, options)
+    {
+      edges,
+      supervision_attribution,
+      lifecycle_observations,
+      partial_supervisors,
+      traversal_limit_reached?
+    } =
+      Supervision.collect(roots, local_node, options)
 
     processes = apply_supervision_attribution(processes, supervision_attribution)
     completed_at = System.monotonic_time(:millisecond)
 
-    coverage = %Coverage{
-      total_pids: length(all_pids),
-      inspected_pids: map_size(processes),
-      vanished_pids: vanished,
-      process_limit_reached?: length(all_pids) > process_limit,
-      traversal_limit_reached?: traversal_limit_reached?,
-      partial_supervisors: partial_supervisors,
-      duration_ms: max(completed_at - started_at, 0),
-      warnings: warnings(length(all_pids) > process_limit, partial_supervisors)
-    }
+    coverage =
+      %Coverage{
+        total_pids: length(all_pids),
+        inspected_pids: map_size(processes),
+        vanished_pids: vanished,
+        process_limit_reached?: length(all_pids) > process_limit,
+        traversal_limit_reached?: traversal_limit_reached?,
+        partial_supervisors: partial_supervisors,
+        duration_ms: max(completed_at - started_at, 0)
+      }
+      |> then(&%{&1 | warnings: Coverage.warnings(&1)})
 
     nodes = collect_nodes(local_node)
 
+    sampled_at = DateTime.utc_now()
+
+    runtime_sample =
+      runtime_sample(
+        sequence,
+        sampled_at,
+        completed_at,
+        processes,
+        applications,
+        nodes,
+        edges,
+        coverage
+      )
+
     snapshot = %Snapshot{
       sequence: sequence,
-      sampled_at: DateTime.utc_now(),
+      sampled_at: sampled_at,
+      monotonic_ms: completed_at,
       local_node_id: local_node_id,
       nodes: nodes,
       applications: applications,
       processes: processes,
       edges: edges,
+      lifecycle_observations: lifecycle_observations,
+      runtime_sample: runtime_sample,
       coverage: coverage,
       index: build_index(processes, applications, nodes)
     }
@@ -77,36 +110,107 @@ defmodule BeamConsole.Runtime.Local do
     exception -> {:error, {:snapshot_failed, exception}}
   end
 
+  @doc """
+  Returns allowlisted details for a local process present in the snapshot.
+
+  The call returns `{:error, :unavailable}` when the PID is remote, has exited,
+  or no longer matches a process in the supplied snapshot.
+  """
   @spec detail(pid(), Snapshot.t(), keyword()) ::
           {:ok, ProcessDetail.t()} | {:error, :unavailable}
   def detail(pid, snapshot, options \\ []) when is_pid(pid) do
     with true <- node(pid) == node(),
-         values when is_list(values) <- Process.info(pid, @detail_fields),
          process_id <- EntityId.build(:process, {node(), pid}),
-         %ProcessInfo{} = summary <- Map.get(snapshot.processes, process_id) do
-      relationship_limit = Config.get(options, :relationship_limit)
-
-      {:ok,
-       %ProcessDetail{
-         id: process_id,
-         pid_text: summary.pid_text,
-         label: summary.label,
-         registered_name: normalize_registered_name(values[:registered_name]),
-         module: module_label(values[:initial_call]),
-         current_function: function_label(values[:current_function]),
-         application: summary.application,
-         memory: values[:memory],
-         reductions: values[:reductions],
-         message_queue_len: values[:message_queue_len],
-         status: values[:status],
-         last_seen_at: snapshot.sampled_at,
-         links: normalize_relations(values[:links], relationship_limit),
-         monitors: normalize_relations(values[:monitors], relationship_limit),
-         monitored_by: normalize_relations(values[:monitored_by], relationship_limit)
-       }}
+         %ProcessInfo{} = summary <- Map.get(snapshot.processes, process_id),
+         {:ok, detail} <- timed_detail(pid, summary, snapshot, options) do
+      {:ok, detail}
     else
       _other -> {:error, :unavailable}
     end
+  end
+
+  defp timed_detail(pid, summary, snapshot, options) do
+    timeout = Config.get(options, :detail_timeout)
+    context = detail_context(snapshot, options)
+    parent = self()
+    request_ref = make_ref()
+
+    {worker, monitor_ref} =
+      spawn_monitor(fn ->
+        result = process_detail(pid, summary, context)
+        send(parent, {request_ref, result})
+      end)
+
+    receive do
+      {^request_ref, result} ->
+        Process.demonitor(monitor_ref, [:flush])
+        result
+
+      {:DOWN, ^monitor_ref, :process, ^worker, _reason} ->
+        {:error, :unavailable}
+    after
+      timeout ->
+        terminate_detail_worker(worker, monitor_ref, request_ref)
+        {:error, :unavailable}
+    end
+  end
+
+  defp process_detail(pid, summary, context) do
+    case Process.info(pid, @detail_fields) do
+      values when is_list(values) ->
+        {links, link_count, links_omitted} =
+          normalize_relations(values[:links], context.relationship_limit, context.process_ids)
+
+        {monitors, monitor_count, monitors_omitted} =
+          normalize_relations(values[:monitors], context.relationship_limit, context.process_ids)
+
+        {monitored_by, monitored_by_count, monitored_by_omitted} =
+          normalize_relations(
+            values[:monitored_by],
+            context.relationship_limit,
+            context.process_ids
+          )
+
+        {:ok,
+         %ProcessDetail{
+           id: summary.id,
+           pid_text: summary.pid_text,
+           label: summary.label,
+           registered_name: normalize_registered_name(values[:registered_name]),
+           module: module_label(values[:initial_call]),
+           current_function: function_label(values[:current_function]),
+           application: summary.application,
+           memory: values[:memory],
+           reductions: values[:reductions],
+           message_queue_len: values[:message_queue_len],
+           status: values[:status],
+           last_seen_at: context.sampled_at,
+           links: links,
+           monitors: monitors,
+           monitored_by: monitored_by,
+           relationship_counts: %{
+             links: link_count,
+             monitors: monitor_count,
+             monitored_by: monitored_by_count
+           },
+           relationship_omitted: %{
+             links: links_omitted,
+             monitors: monitors_omitted,
+             monitored_by: monitored_by_omitted
+           }
+         }}
+
+      _other ->
+        {:error, :unavailable}
+    end
+  end
+
+  defp detail_context(snapshot, options) do
+    %{
+      sampled_at: snapshot.sampled_at,
+      relationship_limit: Config.get(options, :relationship_limit),
+      process_ids: snapshot.processes |> Map.keys() |> MapSet.new()
+    }
   end
 
   defp collect_nodes(local_node) do
@@ -176,171 +280,14 @@ defmodule BeamConsole.Runtime.Local do
         node_id: local_node_id,
         description: safe_string(description),
         version: safe_string(version),
-        root_supervisor_id: root && EntityId.build(:process, {local_node, root})
+        root_supervisor_id: root && EntityId.build(:process, {local_node, root}),
+        required_applications: required_applications(name),
+        origin: application_origin(name)
       }
 
       roots = if root, do: [{name, root} | roots], else: roots
       {Map.put(applications, id, info), roots}
     end)
-  end
-
-  defp collect_supervision(roots, local_node, options) do
-    queue = Enum.map(roots, fn {application, pid} -> {application, pid, 0} end)
-    supervisor_limit = Config.get(options, :supervisor_limit)
-    children_limit = Config.get(options, :children_limit)
-    depth_limit = Config.get(options, :topology_depth)
-
-    initial = {%{}, %{}, MapSet.new(), 0, 0, false}
-
-    {edges, attribution, _visited, partial, _children, reached_limit} =
-      walk_supervisors(
-        queue,
-        initial,
-        local_node,
-        options,
-        supervisor_limit,
-        children_limit,
-        depth_limit
-      )
-
-    {edges, attribution, partial, reached_limit}
-  end
-
-  defp walk_supervisors(
-         [],
-         state,
-         _node,
-         _options,
-         _supervisor_limit,
-         _children_limit,
-         _depth_limit
-       ) do
-    state
-  end
-
-  defp walk_supervisors(
-         [{application, supervisor, depth} | rest],
-         {edges, attribution, visited, partial, children, reached_limit},
-         local_node,
-         options,
-         supervisor_limit,
-         children_limit,
-         depth_limit
-       ) do
-    cond do
-      children >= children_limit ->
-        {edges, attribution, visited, partial, children, true}
-
-      depth > depth_limit or MapSet.size(visited) >= supervisor_limit ->
-        walk_supervisors(
-          rest,
-          {edges, attribution, visited, partial, children, true},
-          local_node,
-          options,
-          supervisor_limit,
-          children_limit,
-          depth_limit
-        )
-
-      MapSet.member?(visited, supervisor) ->
-        walk_supervisors(
-          rest,
-          {edges, attribution, visited, partial, children, reached_limit},
-          local_node,
-          options,
-          supervisor_limit,
-          children_limit,
-          depth_limit
-        )
-
-      true ->
-        visited = MapSet.put(visited, supervisor)
-
-        case which_children(supervisor, options) do
-          {:ok, supervisor_children} ->
-            {next_edges, next_attribution, additions, child_count} =
-              normalize_children(supervisor_children, application, supervisor, local_node, depth)
-
-            walk_supervisors(
-              rest ++ additions,
-              {
-                Map.merge(edges, next_edges),
-                Map.merge(attribution, next_attribution),
-                visited,
-                partial,
-                children + child_count,
-                reached_limit or children + child_count > children_limit
-              },
-              local_node,
-              options,
-              supervisor_limit,
-              children_limit,
-              depth_limit
-            )
-
-          {:error, _reason} ->
-            walk_supervisors(
-              rest,
-              {edges, attribution, visited, partial + 1, children, reached_limit},
-              local_node,
-              options,
-              supervisor_limit,
-              children_limit,
-              depth_limit
-            )
-        end
-    end
-  end
-
-  defp normalize_children(children, application, parent, local_node, depth) do
-    parent_id = EntityId.build(:process, {local_node, parent})
-
-    Enum.reduce(children, {%{}, %{}, [], 0}, fn {child_key, child, type, _modules},
-                                                {edges, attribution, additions, count} ->
-      edge_id = EntityId.build(:edge, {local_node, parent, child_key})
-      child_id = if is_pid(child), do: EntityId.build(:process, {local_node, child}), else: nil
-
-      edge = %SupervisionEdge{
-        id: edge_id,
-        parent_id: parent_id,
-        child_id: child_id,
-        label: EntityId.label(child_key),
-        state: child_state(child),
-        child_type: type
-      }
-
-      attribution =
-        if child_id do
-          Map.put(attribution, child_id, application)
-        else
-          attribution
-        end
-
-      additions =
-        if type == :supervisor and is_pid(child) do
-          [{application, child, depth + 1} | additions]
-        else
-          additions
-        end
-
-      {Map.put(edges, edge_id, edge), attribution, additions, count + 1}
-    end)
-  end
-
-  defp which_children(supervisor, options) do
-    timeout = Config.get(options, :supervisor_timeout)
-
-    task =
-      Task.Supervisor.async_nolink(BeamConsole.TaskSupervisor, fn ->
-        Supervisor.which_children(supervisor)
-      end)
-
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, children} when is_list(children) -> {:ok, children}
-      {:exit, reason} -> {:error, reason}
-      nil -> {:error, :timeout}
-      _other -> {:error, :invalid_children}
-    end
   end
 
   defp apply_supervision_attribution(processes, attribution) do
@@ -392,12 +339,36 @@ defmodule BeamConsole.Runtime.Local do
     end
   end
 
+  defp required_applications(application) do
+    case Application.spec(application, :applications) do
+      applications when is_list(applications) -> Enum.filter(applications, &is_atom/1)
+      _other -> []
+    end
+  end
+
+  defp application_origin(application) do
+    with root when is_list(root) <- :code.root_dir(),
+         directory when is_list(directory) <- :code.lib_dir(application) do
+      otp_library = root |> List.to_string() |> Path.join("lib") |> Path.expand()
+      application_directory = directory |> List.to_string() |> Path.expand()
+
+      if application_directory == otp_library or
+           String.starts_with?(application_directory, otp_library <> "/") do
+        :otp
+      else
+        :external
+      end
+    else
+      _other -> :unknown
+    end
+  end
+
   defp normalize_registered_name([]) do
     nil
   end
 
   defp normalize_registered_name(name) when is_atom(name) do
-    name
+    name |> Atom.to_string() |> EntityId.label(160)
   end
 
   defp normalize_registered_name(_name) do
@@ -421,8 +392,8 @@ defmodule BeamConsole.Runtime.Local do
     nil
   end
 
-  defp process_label(name, _module, _pid) when is_atom(name) do
-    Atom.to_string(name)
+  defp process_label(name, _module, _pid) when is_binary(name) do
+    name
   end
 
   defp process_label(nil, module, _pid) when is_binary(module) do
@@ -431,22 +402,6 @@ defmodule BeamConsole.Runtime.Local do
 
   defp process_label(nil, nil, pid) do
     EntityId.label(pid)
-  end
-
-  defp child_state(child) when is_pid(child) do
-    :running
-  end
-
-  defp child_state(:restarting) do
-    :restarting
-  end
-
-  defp child_state(:undefined) do
-    :undefined
-  end
-
-  defp child_state(_child) do
-    :missing
   end
 
   defp safe_string(value) when is_binary(value) do
@@ -465,41 +420,108 @@ defmodule BeamConsole.Runtime.Local do
     nil
   end
 
-  defp normalize_relations(relations, limit) when is_list(relations) do
-    relations
-    |> Enum.take(limit)
-    |> Enum.map(&relation_label/1)
+  defp normalize_relations(relations, limit, process_ids) when is_list(relations) do
+    count = length(relations)
+    normalized = relations |> Enum.take(limit) |> Enum.map(&process_relation(&1, process_ids))
+    {normalized, count, max(count - length(normalized), 0)}
   end
 
-  defp normalize_relations(_relations, _limit) do
-    []
+  defp normalize_relations(_relations, _limit, _process_ids) do
+    {[], 0, 0}
   end
 
-  defp relation_label(pid) when is_pid(pid) do
-    EntityId.label(pid)
+  defp terminate_detail_worker(worker, monitor_ref, request_ref) do
+    Process.exit(worker, :kill)
+
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^worker, _reason} -> :ok
+    after
+      50 -> Process.demonitor(monitor_ref, [:flush])
+    end
+
+    receive do
+      {^request_ref, _late_result} -> :ok
+    after
+      0 -> :ok
+    end
   end
 
-  defp relation_label(port) when is_port(port) do
-    port |> :erlang.port_to_list() |> List.to_string()
+  defp runtime_sample(
+         sequence,
+         sampled_at,
+         monotonic_ms,
+         processes,
+         applications,
+         nodes,
+         edges,
+         coverage
+       ) do
+    memory = :erlang.memory()
+
+    %RuntimeSample{
+      sequence: sequence,
+      sampled_at_ms: DateTime.to_unix(sampled_at, :millisecond),
+      monotonic_ms: monotonic_ms,
+      process_count: map_size(processes),
+      supervisor_count: supervisor_count(applications, edges),
+      application_count: map_size(applications),
+      ets_count: length(:ets.all()),
+      node_count: map_size(nodes),
+      memory_total: memory[:total],
+      memory_processes: memory[:processes],
+      memory_system: memory[:system],
+      memory_atom: memory[:atom],
+      memory_binary: memory[:binary],
+      memory_code: memory[:code],
+      memory_ets: memory[:ets],
+      scheduler_count: :erlang.system_info(:schedulers_online),
+      run_queue: :erlang.statistics(:run_queue),
+      collector_scan_ms: coverage.duration_ms,
+      collector_partial?: Coverage.state(coverage) != :complete
+    }
   end
 
-  defp relation_label({kind, pid}) when kind in [:process, :port] do
-    relation_label(pid)
+  defp supervisor_count(applications, edges) do
+    child_supervisors =
+      edges
+      |> Map.values()
+      |> Enum.filter(&(&1.child_type == :supervisor and is_binary(&1.child_id)))
+      |> Enum.map(& &1.child_id)
+
+    root_supervisors =
+      applications
+      |> Map.values()
+      |> Enum.map(& &1.root_supervisor_id)
+      |> Enum.reject(&is_nil/1)
+
+    child_supervisors
+    |> Kernel.++(root_supervisors)
+    |> MapSet.new()
+    |> MapSet.size()
   end
 
-  defp relation_label(_relation) do
-    "opaque relation"
+  defp process_relation(pid, process_ids) when is_pid(pid) do
+    id = EntityId.build(:process, {node(pid), pid})
+
+    %ProcessRelation{
+      id: if(MapSet.member?(process_ids, id), do: id),
+      label: EntityId.label(pid),
+      kind: :process
+    }
   end
 
-  defp warnings(true, partial_supervisors) do
-    ["Process limit reached" | warnings(false, partial_supervisors)]
+  defp process_relation(port, _process_ids) when is_port(port) do
+    %ProcessRelation{
+      label: port |> :erlang.port_to_list() |> List.to_string(),
+      kind: :port
+    }
   end
 
-  defp warnings(false, partial_supervisors) when partial_supervisors > 0 do
-    ["#{partial_supervisors} supervision branches were partial"]
+  defp process_relation({kind, relation}, process_ids) when kind in [:process, :port] do
+    process_relation(relation, process_ids)
   end
 
-  defp warnings(false, _partial_supervisors) do
-    []
+  defp process_relation(_relation, _process_ids) do
+    %ProcessRelation{label: "opaque relation", kind: :opaque}
   end
 end

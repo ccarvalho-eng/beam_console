@@ -1,12 +1,16 @@
 defmodule BeamConsoleDemoWeb.Telemetry do
+  @moduledoc "Starts the demo telemetry poller and defines its Phoenix and VM metrics."
+
   use Supervisor
   import Telemetry.Metrics
 
+  @doc "Starts the demo telemetry supervisor."
+  @spec start_link(term()) :: Supervisor.on_start()
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
-  @impl true
+  @impl Supervisor
   def init(_arg) do
     children = [
       # Telemetry poller will execute the given period measurements
@@ -19,6 +23,8 @@ defmodule BeamConsoleDemoWeb.Telemetry do
     Supervisor.init(children, strategy: :one_for_one)
   end
 
+  @doc "Returns the metrics collected by the demo telemetry reporters."
+  @spec metrics() :: list()
   def metrics do
     [
       # Phoenix Metrics
