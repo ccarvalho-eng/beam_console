@@ -181,8 +181,10 @@ const BeamConsolePanels = {
     this.focusReturn = null;
     this.togglePanel = event => {
       const toggle = event.target.closest("[data-beam-console-panel-toggle]");
-      if (!toggle || !this.media.matches) return;
+      if (!toggle) return;
       const name = toggle.dataset.beamConsolePanelToggle;
+      if (!this.panelIsDrawer(name)) return;
+
       if (this.activePanel === name) {
         this.closePanels();
         return;
@@ -218,10 +220,7 @@ const BeamConsolePanels = {
         this.setFocusMode(action === "toggle" ? !this.focusActive : false, true, true);
       }
     };
-    this.breakpointChanged = () => {
-      if (!this.media.matches) this.activePanel = null;
-      this.syncPanels(false);
-    };
+    this.breakpointChanged = () => this.syncBreakpoint();
     this.storageChanged = event => {
       if (event.key !== this.focusStorageKey) return;
       const active = this.readFocusPreference();
@@ -238,6 +237,17 @@ const BeamConsolePanels = {
   },
   updated() {
     this.syncFocusMode(false);
+
+    if (
+      this.focusActive &&
+      this.activePanel === "inspector" &&
+      this.el.dataset.beamConsoleHasSelection !== "true"
+    ) {
+      this.returnFocus = this.el.querySelector("#beam-console-focus-exit");
+      this.closePanels();
+      return;
+    }
+
     this.syncPanels(false);
   },
   destroyed() {
@@ -249,12 +259,14 @@ const BeamConsolePanels = {
     this.media.removeEventListener("change", this.breakpointChanged);
   },
   setFocusMode(active, persist, moveFocus, announce = persist) {
+    const changed = this.focusActive !== Boolean(active);
     this.focusActive = Boolean(active);
     document.documentElement.dataset.beamConsoleFocus = String(this.focusActive);
 
     if (persist) this.writeFocusPreference(this.focusActive);
-    if (this.focusActive && this.activePanel) this.closePanels();
+    if (changed && this.activePanel) this.closePanels();
     this.syncFocusMode(moveFocus, announce);
+    this.syncPanels(false);
     this.scheduleWorkspaceResize();
   },
   syncFocusMode(moveFocus, announce = false) {
@@ -281,7 +293,7 @@ const BeamConsolePanels = {
     if (active && this.activePanel) return true;
 
     if (!active) {
-      return Boolean(current.closest(".beam-console-focus-exit, .beam-console-focus-inspector"));
+      return Boolean(this.activePanel || current.closest(".beam-console-focus-bar"));
     }
 
     const selected = this.el.dataset.beamConsoleHasSelection === "true";
@@ -302,10 +314,37 @@ const BeamConsolePanels = {
   writeFocusPreference(active) {
     writeStoredBoolean(window, this.focusStorageKey, active);
   },
-  closePanels() {
-    const activeToggle = this.returnFocus || this.el.querySelector(
-      `[data-beam-console-panel-toggle="${this.activePanel}"]`
+  panelIsDrawer(name) {
+    return this.media.matches || (this.focusActive && name === "runtime");
+  },
+  panelToggle(name) {
+    const focusToggle = this.focusActive
+      ? this.el.querySelector(`#beam-console-focus-${name}`)
+      : null;
+
+    return focusToggle || this.el.querySelector(
+      `[data-beam-console-panel-toggle="${name}"]`
     );
+  },
+  syncBreakpoint() {
+    const focusedPanel = document.activeElement?.closest?.("[data-beam-console-panel]");
+    const focusedName = focusedPanel?.dataset.beamConsolePanel;
+
+    if (focusedName && this.panelIsDrawer(focusedName)) {
+      this.activePanel = focusedName;
+      this.returnFocus = this.panelToggle(focusedName);
+      this.syncPanels(true);
+      return;
+    }
+
+    if (this.activePanel && !this.panelIsDrawer(this.activePanel)) {
+      this.activePanel = null;
+    }
+
+    this.syncPanels(false);
+  },
+  closePanels() {
+    const activeToggle = this.returnFocus || this.panelToggle(this.activePanel);
     this.activePanel = null;
     this.returnFocus = null;
     this.syncPanels(false);
@@ -343,18 +382,19 @@ const BeamConsolePanels = {
     }
   },
   syncPanels(focusPanel) {
-    const mobile = this.media.matches;
-    const modalOpen = mobile && Boolean(this.activePanel);
+    const overlayOpen = Boolean(this.activePanel) && this.panelIsDrawer(this.activePanel);
 
     this.el.querySelectorAll("[data-beam-console-panel]").forEach(panel => {
-      const active = mobile && panel.dataset.beamConsolePanel === this.activePanel;
+      const name = panel.dataset.beamConsolePanel;
+      const drawer = this.panelIsDrawer(name);
+      const active = overlayOpen && name === this.activePanel;
       panel.classList.toggle("is-mobile-open", active);
-      panel.inert = mobile && !active;
+      panel.inert = overlayOpen ? !active : drawer;
 
       if (panel.inert) panel.setAttribute("inert", "");
       else panel.removeAttribute("inert");
 
-      if (mobile) panel.setAttribute("aria-hidden", String(!active));
+      if (overlayOpen || drawer) panel.setAttribute("aria-hidden", String(!active));
       else panel.removeAttribute("aria-hidden");
 
       if (active) {
@@ -374,17 +414,17 @@ const BeamConsolePanels = {
       );
       if (!background) return;
 
-      child.inert = modalOpen;
+      child.inert = overlayOpen;
       if (child.inert) child.setAttribute("inert", "");
       else child.removeAttribute("inert");
     });
 
     this.el.querySelectorAll("[data-beam-console-panel-toggle]").forEach(toggle => {
-      const active = mobile && toggle.dataset.beamConsolePanelToggle === this.activePanel;
+      const active = overlayOpen && toggle.dataset.beamConsolePanelToggle === this.activePanel;
       toggle.setAttribute("aria-expanded", String(active));
     });
 
-    this.el.classList.toggle("has-mobile-panel", modalOpen);
+    this.el.classList.toggle("has-overlay-panel", overlayOpen);
   }
 };
 

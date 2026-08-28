@@ -304,7 +304,7 @@ test("narrow layouts expose runtime and inspector as overlay panels", async () =
   );
   assert.match(
     stylesheet,
-    /\.beam-console-frame\.has-mobile-panel \.beam-console-panel-backdrop\s*\{[\s\S]*?display:\s*block/
+    /\.beam-console-frame\.has-overlay-panel \.beam-console-panel-backdrop\s*\{[\s\S]*?display:\s*block/
   );
 
   const panelHook = await readFile(
@@ -312,9 +312,20 @@ test("narrow layouts expose runtime and inspector as overlay panels", async () =
     "utf8"
   );
 
-  assert.match(panelHook, /panel\.inert = mobile && !active/);
+  assert.match(panelHook, /panel\.inert = overlayOpen \? !active : drawer/);
   assert.match(panelHook, /event\.key === "Tab"/);
   assert.match(panelHook, /activeToggle\?\.focus\(\)/);
+});
+
+test("focus mode exposes the runtime hierarchy as a desktop drawer", () => {
+  const desktop = { matches: false };
+  const hook = { ...BeamConsolePanels, media: desktop, focusActive: true };
+
+  assert.equal(hook.panelIsDrawer("runtime"), true);
+  assert.equal(hook.panelIsDrawer("inspector"), false);
+
+  hook.focusActive = false;
+  assert.equal(hook.panelIsDrawer("runtime"), false);
 });
 
 test("mobile panels restore focus when dismissed", () => {
@@ -355,6 +366,7 @@ test("focus mode updates browser state without touching runtime controls", () =>
         writeStoredBoolean(window, "beam-console:focus:/beam", active);
       },
       syncFocusMode: () => { synced = true; },
+      syncPanels: () => {},
       scheduleWorkspaceResize: () => { resized = true; }
     };
 
@@ -394,6 +406,100 @@ test("storage-driven focus changes recover focus only from hidden chrome", () =>
     hook.activePanel = "inspector";
     hook.el.dataset.beamConsoleHasSelection = "true";
     assert.equal(hook.focusTransitionHidesActiveControl(true), true);
+    assert.equal(hook.focusTransitionHidesActiveControl(false), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("storage-driven focus exit closes drawers before restoring visible focus", () => {
+  const previousDocument = globalThis.document;
+  let closed = false;
+  let moveFocus = false;
+
+  globalThis.document = {
+    documentElement: { dataset: {} },
+    activeElement: { closest: () => null }
+  };
+
+  try {
+    const hook = {
+      ...BeamConsolePanels,
+      focusActive: true,
+      activePanel: "runtime",
+      el: { contains: () => true },
+      closePanels: () => {
+        closed = true;
+        hook.activePanel = null;
+      },
+      syncFocusMode: move => { moveFocus = move; },
+      syncPanels: () => {},
+      scheduleWorkspaceResize: () => {}
+    };
+    const focusMustMove = hook.focusTransitionHidesActiveControl(false);
+
+    hook.setFocusMode(false, false, focusMustMove, false);
+
+    assert.equal(closed, true);
+    assert.equal(moveFocus, true);
+    assert.equal(hook.activePanel, null);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("focus mode closes an inspector drawer when its selection disappears", () => {
+  const exit = {};
+  let closed = false;
+  const hook = {
+    ...BeamConsolePanels,
+    focusActive: true,
+    activePanel: "inspector",
+    returnFocus: null,
+    el: {
+      dataset: { beamConsoleHasSelection: "false" },
+      querySelector: selector => selector === "#beam-console-focus-exit" ? exit : null
+    },
+    syncFocusMode: () => {},
+    closePanels: () => { closed = true; }
+  };
+
+  hook.updated();
+
+  assert.equal(hook.returnFocus, exit);
+  assert.equal(closed, true);
+});
+
+test("a panel receiving focus becomes the active drawer at the mobile breakpoint", () => {
+  const runtimeToggle = {};
+  const focusedPanel = {
+    dataset: { beamConsolePanel: "runtime" }
+  };
+  const previousDocument = globalThis.document;
+  let focusedDrawer = false;
+
+  globalThis.document = {
+    activeElement: {
+      closest: selector => selector === "[data-beam-console-panel]" ? focusedPanel : null
+    }
+  };
+
+  try {
+    const hook = {
+      ...BeamConsolePanels,
+      media: { matches: true },
+      focusActive: false,
+      activePanel: null,
+      returnFocus: null,
+      panelToggle: () => runtimeToggle,
+      syncPanels: focusPanel => { focusedDrawer = focusPanel; }
+    };
+
+    hook.syncBreakpoint();
+
+    assert.equal(hook.activePanel, "runtime");
+    assert.equal(hook.returnFocus, runtimeToggle);
+    assert.equal(focusedDrawer, true);
   } finally {
     globalThis.document = previousDocument;
   }
@@ -475,7 +581,7 @@ test("header navigation keeps a fixed center column across tabs", async () => {
   assert.match(stylesheet, /\.beam-console-search-form\.is-placeholder\s*\{[\s\S]*?visibility:\s*hidden/);
 });
 
-test("focus mode removes chrome without changing the active workspace", async () => {
+test("focus mode provides a fixed workspace bar and hierarchy drawer", async () => {
   const stylesheet = await readFile(
     new URL("../../priv/static/beam_console.css", import.meta.url),
     "utf8"
@@ -498,7 +604,27 @@ test("focus mode removes chrome without changing the active workspace", async ()
   );
   assert.match(
     stylesheet,
-    /data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-exit[\s\S]*?display:\s*grid/
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-bar[\s\S]*?display:\s*flex/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-shell\s*\{[\s\S]*?height:\s*100dvh[\s\S]*?min-height:\s*0/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-bar\s*\{[\s\S]*?grid-column:\s*1 \/ -1[\s\S]*?grid-row:\s*1/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-frame\s*\{[\s\S]*?height:\s*100dvh[\s\S]*?min-height:\s*0/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-sidebar[\s\S]*?position:\s*fixed[\s\S]*?transform:\s*translateX\(-105%\)/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-sidebar\.is-mobile-open[\s\S]*?transform:\s*translateX\(0\)/
   );
   assert.match(
     stylesheet,
@@ -506,11 +632,19 @@ test("focus mode removes chrome without changing the active workspace", async ()
   );
   assert.match(
     stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-actions[\s\S]*?\.beam-console-focus-inspector\s*\{[\s\S]*?display:\s*none/
+  );
+  assert.match(
+    stylesheet,
     /data-beam-console-focus="true"[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) clamp\(280px, 32vw, 332px\)/
   );
   assert.match(
     stylesheet,
-    /@media \(max-width: 760px\)[\s\S]*?\.beam-console-main:not\(\.beam-console-tab-main\)[\s\S]*?grid-template-rows:\s*minmax\(0, 64dvh\) minmax\(0, 36dvh\)/
+    /@media \(max-width: 760px\)[\s\S]*?\.beam-console-main:not\(\.beam-console-tab-main\)[\s\S]*?grid-template-rows:\s*minmax\(0, 1\.8fr\) minmax\(0, 1fr\)/
+  );
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?data-beam-console-has-selection="true"[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/
   );
   assert.match(
     stylesheet,

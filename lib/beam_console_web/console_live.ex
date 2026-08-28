@@ -281,35 +281,56 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             aria-live="polite"
             aria-atomic="true"
           ></span>
-          <button
-            id="beam-console-focus-inspector"
-            type="button"
-            class="beam-console-icon-button beam-console-focus-inspector"
-            data-beam-console-panel-toggle="inspector"
-            aria-controls="beam-console-inspector-panel"
-            aria-expanded="false"
-            aria-label="Open inspector"
-            data-tooltip="Inspector"
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="11" cy="11" r="6" />
-              <path d="m16 16 4 4M11 8v6M8 11h6" />
-            </svg>
-          </button>
-          <button
-            id="beam-console-focus-exit"
-            type="button"
-            class="beam-console-icon-button beam-console-focus-exit"
-            data-beam-console-focus-toggle
-            aria-label="Exit focus mode"
-            aria-keyshortcuts="Escape"
-            aria-pressed="false"
-            data-tooltip="Exit focus mode (Esc)"
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" />
-            </svg>
-          </button>
+          <div id="beam-console-focus-bar" class="beam-console-focus-bar">
+            <span class="beam-console-focus-label">Focus</span>
+            <div class="beam-console-focus-actions">
+              <button
+                id="beam-console-focus-runtime"
+                type="button"
+                class="beam-console-icon-button"
+                data-beam-console-panel-toggle="runtime"
+                aria-controls="beam-console-runtime-panel"
+                aria-expanded="false"
+                aria-label="Open runtime hierarchy"
+                data-tooltip="Runtime hierarchy"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 6h6M4 12h10M4 18h16" />
+                  <circle cx="13" cy="6" r="2" />
+                  <circle cx="17" cy="12" r="2" />
+                </svg>
+              </button>
+              <button
+                id="beam-console-focus-inspector"
+                type="button"
+                class="beam-console-icon-button beam-console-focus-inspector"
+                data-beam-console-panel-toggle="inspector"
+                aria-controls="beam-console-inspector-panel"
+                aria-expanded="false"
+                aria-label="Open inspector"
+                data-tooltip="Inspector"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="11" cy="11" r="6" />
+                  <path d="m16 16 4 4M11 8v6M8 11h6" />
+                </svg>
+              </button>
+              <button
+                id="beam-console-focus-exit"
+                type="button"
+                class="beam-console-icon-button beam-console-focus-exit"
+                data-beam-console-focus-toggle
+                aria-label="Exit focus mode"
+                aria-keyshortcuts="Escape"
+                aria-pressed="false"
+                data-tooltip="Exit focus mode (Esc)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
           <.runtime_tree
             nodes={@nodes}
