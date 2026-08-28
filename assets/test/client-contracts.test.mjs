@@ -552,6 +552,22 @@ test("runtime summary adapts before cards become cramped", async () => {
   );
 });
 
+test("runtime tree distinguishes selected processes from selected applications", async () => {
+  const stylesheet = await readFile(
+    new URL("../../priv/static/beam_console.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    stylesheet,
+    /\.beam-console-sidebar-selection\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--bc-border\)/
+  );
+  assert.match(
+    stylesheet,
+    /\.beam-console-link\.has-selected-process\s*\{[\s\S]*?background:\s*var\(--bc-accent-soft\)/
+  );
+});
+
 test("tablet process diagnostics do not compete with relationship rows", async () => {
   const stylesheet = await readFile(
     new URL("../../priv/static/beam_console.css", import.meta.url),

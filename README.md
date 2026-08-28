@@ -17,7 +17,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.5.2"}
+    {:beam_console, "~> 0.5.3"}
   ]
 end
 ```

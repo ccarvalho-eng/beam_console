@@ -54,7 +54,7 @@ defmodule BeamConsoleWeb.Console.DashboardPresenter do
 
   def selection(%Snapshot{} = snapshot, selected_id) do
     case Map.get(snapshot.index, selected_id) do
-      {:process, _pid} -> process_selection(snapshot.processes[selected_id])
+      {:process, _pid} -> process_selection(snapshot, snapshot.processes[selected_id])
       {:application, _name} -> application_selection(snapshot.applications[selected_id])
       {:node, _name} -> node_selection(snapshot.nodes[selected_id])
       _other -> %{id: selected_id, kind: :unknown, label: "No longer available"}
@@ -71,18 +71,27 @@ defmodule BeamConsoleWeb.Console.DashboardPresenter do
     false
   end
 
-  defp process_selection(nil) do
+  defp process_selection(_snapshot, nil) do
     nil
   end
 
-  defp process_selection(process) do
+  defp process_selection(snapshot, process) do
     %{
       id: process.id,
       kind: :process,
       label: process.label,
       pid_text: process.pid_text,
-      status: process.status
+      status: process.status,
+      application_id: process_application_id(snapshot, process)
     }
+  end
+
+  defp process_application_id(snapshot, process) do
+    application_name = process.supervision_application || process.application
+
+    Enum.find_value(snapshot.applications, fn {_id, application} ->
+      if application.name == application_name, do: application.id
+    end)
   end
 
   defp application_selection(nil) do

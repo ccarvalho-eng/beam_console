@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.3 - 2026-08-28
+
+- Keep the selected process visible in the runtime sidebar and mark its owning application as selection context.
+
 ## 0.5.2 - 2026-08-28
 
 - Move Focus controls into a dedicated full-viewport bar so they never cover workspace headings.
