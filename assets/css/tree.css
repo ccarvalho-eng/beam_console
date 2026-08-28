@@ -86,6 +86,47 @@
   text-transform: uppercase;
 }
 
+.beam-console-sidebar-selection {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--bc-border);
+  background: color-mix(in srgb, var(--bc-accent-soft), transparent 28%);
+}
+
+.beam-console-sidebar-selection-copy {
+  min-width: 0;
+}
+
+.beam-console-sidebar-selection-eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--bc-accent);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.beam-console-sidebar-selection-label {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beam-console-sidebar-selection-pid {
+  flex: 0 0 auto;
+  color: var(--bc-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
 .beam-console-list {
   margin: 0;
   padding: 10px;
@@ -220,6 +261,15 @@
 
 .beam-console-link:hover {
   background: var(--bc-surface);
+}
+
+.beam-console-link.has-selected-process {
+  border-color: color-mix(in srgb, var(--bc-accent-border), transparent 35%);
+  background: var(--bc-accent-soft);
+}
+
+.beam-console-link.has-selected-process .beam-console-count {
+  color: var(--bc-accent);
 }
 
 .beam-console-link.is-selected {

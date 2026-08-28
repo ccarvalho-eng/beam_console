@@ -29,6 +29,9 @@ defmodule BeamConsoleWeb.Console.DashboardPresenterTest do
 
     assert %{kind: :application, label: "sample"} =
              DashboardPresenter.selection(snapshot, application.id)
+
+    assert %{kind: :process, application_id: "app_1"} =
+             DashboardPresenter.selection(snapshot, first.id)
   end
 
   defp process(id, label) do
@@ -37,7 +40,8 @@ defmodule BeamConsoleWeb.Console.DashboardPresenterTest do
       node_id: "node_1",
       pid: self(),
       pid_text: "<0.1.0>",
-      label: label
+      label: label,
+      application: :sample
     }
   end
 end

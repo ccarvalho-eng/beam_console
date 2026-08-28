@@ -337,6 +337,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             categories={@application_categories}
             application_count={@application_count}
             selected_id={@selected_id}
+            selected={@selected}
             coverage_warnings={@coverage_warnings}
           />
 

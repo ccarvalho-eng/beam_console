@@ -153,6 +153,34 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     assert has_element?(view, "#beam-console-tab-process_map[aria-current='page']")
   end
 
+  test "shows process selection context in the runtime sidebar", %{snapshot: snapshot} do
+    {process, application} =
+      Enum.find_value(snapshot.processes, fn {_id, process} ->
+        application_name = process.supervision_application || process.application
+
+        case Enum.find(snapshot.applications, fn {_id, application} ->
+               application.name == application_name
+             end) do
+          {_id, application} -> {process, application}
+          nil -> nil
+        end
+      end)
+
+    {:ok, view, _html} =
+      live(build_conn(), "/beam?" <> URI.encode_query(%{"entity" => process.id}))
+
+    assert has_element?(
+             view,
+             "#beam-console-sidebar-selection[data-selected-id='#{process.id}']",
+             process.label
+           )
+
+    assert has_element?(
+             view,
+             "#select-#{application.id}.has-selected-process[data-selection-context='process']"
+           )
+  end
+
   test "loads an allowlisted process detail from a URL selection", %{snapshot: snapshot} do
     process = snapshot.processes |> Map.values() |> Enum.find(&Process.alive?(&1.pid))
 
