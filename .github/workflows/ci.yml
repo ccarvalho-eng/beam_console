@@ -51,6 +51,9 @@ jobs:
       - name: Check compile-connected cycles
         run: mix xref graph --format cycles --label compile-connected --fail-above 0
 
+      - name: Check all dependency cycles
+        run: mix xref graph --format cycles --fail-above 0
+
       - name: Check unused lock entries
         run: mix deps.unlock --check-unused
 

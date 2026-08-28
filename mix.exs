@@ -77,6 +77,7 @@ defmodule BeamConsole.MixProject do
       quality: [
         "compile --warnings-as-errors",
         "xref graph --format cycles --label compile-connected --fail-above 0",
+        "xref graph --format cycles --fail-above 0",
         "deps.unlock --check-unused",
         "format --check-formatted",
         "credo --strict --min-priority high",
