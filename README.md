@@ -17,7 +17,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.3.0"}
+    {:beam_console, "~> 0.4.0"}
   ]
 end
 ```
@@ -55,6 +55,9 @@ end
 
 status = BeamConsole.Recorder.status()
 events = BeamConsole.Recorder.events(limit: 100)
+
+paused = BeamConsole.Recording.pause()
+resumed = BeamConsole.Recording.resume()
 ```
 
 Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer needs updates. Subscribers are also removed automatically when their process terminates.
@@ -71,7 +74,7 @@ Applications are grouped into host, dependencies, OTP, and tooling categories. E
 
 ## Recording model
 
-The default `:subscribers` mode records while at least one BeamConsole page is connected. The header control pauses and resumes recording explicitly. Retained samples remain bounded by age, item count, chart point count, and estimated bytes.
+The default `:subscribers` mode records while at least one BeamConsole page is connected. The header control pauses and resumes lifecycle recording explicitly. A connected dashboard continues receiving live runtime samples while recording is paused. Retained samples remain bounded by age, item count, chart point count, and estimated bytes.
 
 To begin recording when the application starts, even before anyone opens the page:
 
@@ -80,7 +83,9 @@ config :beam_console, :recorder,
   mode: :always
 ```
 
-In `:always` mode, sampling and lifecycle recording remain active with zero connected pages. The collector and recorder both derive their demand from this mode, so ordinary subscriber disconnects and supervised collector or recorder restarts do not silently return recording to subscriber-only behavior. An explicit operator pause still takes precedence until recording is resumed.
+In `:always` mode, sampling and lifecycle recording remain active with zero connected pages. The collector and recorder both derive their demand from this mode, so ordinary subscriber disconnects and supervised collector or recorder restarts do not silently return recording to subscriber-only behavior. An explicit operator pause takes precedence: lifecycle watches stop immediately, and background sampling stops when no viewer remains. The shared pause state survives independent collector and recorder restarts until recording is resumed; a full application restart restores the configured default.
+
+One runtime scan already in flight when recording is paused may still complete and update the latest snapshot. It cannot restart a zero-viewer background scan loop. Manual refresh remains a bounded one-shot, while recorder-driven reconciliation is suppressed until recording resumes.
 
 Lifecycle recording is observational rather than a lossless trace. Sampling gaps, partial supervision traversal, process limits, watch limits, and dropped history are surfaced in the interface instead of being hidden.
 
