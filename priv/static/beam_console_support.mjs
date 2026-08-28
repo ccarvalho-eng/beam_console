@@ -48,19 +48,28 @@ export const writeStoredBranchStates = (storageOwner, key, states) => {
 };
 
 export const chartHeadline = (series, unit, formatter) => {
-  const points = series.flatMap(item => Array.isArray(item.points) ? item.points : []);
-  if (!points.length) return "No data";
-  if (series.length > 1) return `${series.length} series`;
-  return formatter(series[0].points.at(-1)[1], unit);
+  const latest = series.flatMap(item => {
+    const points = Array.isArray(item.points) ? item.points : [];
+    return points.length ? [{ label: item.label, point: points.at(-1) }] : [];
+  });
+  if (!latest.length) return "No data";
+  if (latest.length === 1) return formatter(latest[0].point[1], unit);
+  if (latest.length === 2) {
+    return latest
+      .map(item => `${item.label} ${formatter(item.point[1], unit)}`)
+      .join(" · ");
+  }
+  return `${latest.length} series`;
 };
 
 export const formatChartValue = (value, unit) => {
   if (!Number.isFinite(value)) return "—";
-  if (unit === "bytes") {
+  if (unit === "bytes" || unit === "bytes/s") {
     const absolute = Math.abs(value);
-    if (absolute >= 1048576) return `${(value / 1048576).toFixed(1)} MB`;
-    if (absolute >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-    return `${Math.round(value)} B`;
+    const suffix = unit === "bytes/s" ? "/s" : "";
+    if (absolute >= 1048576) return `${(value / 1048576).toFixed(1)} MB${suffix}`;
+    if (absolute >= 1024) return `${(value / 1024).toFixed(1)} KB${suffix}`;
+    return `${Math.round(value)} B${suffix}`;
   }
   if (unit === "reductions/s") return `${Math.round(value).toLocaleString()} /s`;
   if (unit === "ms") return `${Math.round(value)} ms`;

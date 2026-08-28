@@ -9,7 +9,7 @@ defmodule BeamConsole.Series.Downsampler do
   @type point :: %{
           required(:sampled_at_ms) => integer(),
           required(:value) => number(),
-          optional(:segment) => non_neg_integer()
+          optional(:segment) => non_neg_integer() | String.t()
         }
 
   @doc """

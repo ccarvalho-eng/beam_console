@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-27
+
 - Add bounded scheduling, heap, and garbage-collection diagnostics to the process inspector.
 - Make process group leaders selectable when they are present in the latest snapshot.
+- Add uptime, port and process capacity, scheduler topology, and CPU/I/O run-queue pressure.
+- Add gap-aware input and output throughput charts derived from cumulative runtime counters.
+- Replace ETS table enumeration with the constant-time ERTS table count.
 
 ## 0.4.0 - 2026-08-27
 

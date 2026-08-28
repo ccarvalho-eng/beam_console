@@ -17,8 +17,9 @@ defmodule BeamConsole.Runtime.Local do
   alias BeamConsole.ProcessDetail.Diagnostics
   alias BeamConsole.ProcessInfo
   alias BeamConsole.ProcessRelation
-  alias BeamConsole.Runtime.Sample, as: RuntimeSample
   alias BeamConsole.Runtime.ProcessSelector
+  alias BeamConsole.Runtime.Pressure
+  alias BeamConsole.Runtime.Sample, as: RuntimeSample
   alias BeamConsole.Runtime.Supervision
   alias BeamConsole.Snapshot
 
@@ -528,6 +529,7 @@ defmodule BeamConsole.Runtime.Local do
          coverage
        ) do
     memory = :erlang.memory()
+    pressure = runtime_pressure()
 
     %RuntimeSample{
       sequence: sequence,
@@ -537,7 +539,7 @@ defmodule BeamConsole.Runtime.Local do
       inspected_process_count: coverage.inspected_pids,
       supervisor_count: supervisor_count(applications, edges),
       application_count: map_size(applications),
-      ets_count: length(:ets.all()),
+      ets_count: system_info_integer(:ets_count) || 0,
       node_count: map_size(nodes),
       atom_count: :erlang.system_info(:atom_count),
       atom_limit: :erlang.system_info(:atom_limit),
@@ -548,11 +550,87 @@ defmodule BeamConsole.Runtime.Local do
       memory_binary: memory[:binary],
       memory_code: memory[:code],
       memory_ets: memory[:ets],
-      scheduler_count: :erlang.system_info(:schedulers_online),
-      run_queue: :erlang.statistics(:run_queue),
+      scheduler_count: pressure.scheduler_online,
+      run_queue: pressure.run_queue_total,
+      pressure: pressure,
       collector_scan_ms: coverage.duration_ms,
       collector_partial?: Coverage.state(coverage) != :complete
     }
+  end
+
+  defp runtime_pressure do
+    scheduler_total = system_info_integer(:schedulers)
+    scheduler_online = system_info_integer(:schedulers_online)
+    {run_queue_total, run_queue_cpu, run_queue_io} = run_queues(scheduler_total)
+    {io_input_bytes, io_output_bytes} = io_counters()
+
+    %Pressure{
+      uptime_ms: uptime_ms(),
+      port_count: system_info_integer(:port_count),
+      port_limit: system_info_integer(:port_limit),
+      process_limit: system_info_integer(:process_limit),
+      scheduler_total: scheduler_total,
+      scheduler_online: scheduler_online,
+      dirty_cpu_scheduler_total: system_info_integer(:dirty_cpu_schedulers),
+      dirty_cpu_scheduler_online: system_info_integer(:dirty_cpu_schedulers_online),
+      dirty_io_scheduler_total: system_info_integer(:dirty_io_schedulers),
+      run_queue_total: run_queue_total,
+      run_queue_cpu: run_queue_cpu,
+      run_queue_io: run_queue_io,
+      io_input_bytes: io_input_bytes,
+      io_output_bytes: io_output_bytes
+    }
+  end
+
+  defp system_info_integer(key) do
+    key
+    |> :erlang.system_info()
+    |> non_negative_integer()
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp statistics_integer(key) do
+    key
+    |> :erlang.statistics()
+    |> non_negative_integer()
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp uptime_ms do
+    started_at = :erlang.system_info(:start_time)
+    elapsed = :erlang.monotonic_time() - started_at
+    :erlang.convert_time_unit(elapsed, :native, :millisecond)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp io_counters do
+    {{:input, input}, {:output, output}} = :erlang.statistics(:io)
+    {non_negative_integer(input), non_negative_integer(output)}
+  rescue
+    ArgumentError -> {nil, nil}
+  end
+
+  defp run_queues(scheduler_total)
+       when is_integer(scheduler_total) and scheduler_total > 0 do
+    lengths = :erlang.statistics(:run_queue_lengths_all)
+
+    case Pressure.partition_run_queues(lengths, scheduler_total) do
+      {:ok, queues} -> {queues.total, queues.cpu, queues.io}
+      :error -> fallback_run_queues()
+    end
+  rescue
+    ArgumentError -> fallback_run_queues()
+  end
+
+  defp run_queues(_scheduler_total) do
+    fallback_run_queues()
+  end
+
+  defp fallback_run_queues do
+    {statistics_integer(:run_queue), nil, nil}
   end
 
   defp supervisor_count(applications, edges) do
