@@ -17,8 +17,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
   alias BeamConsole.Lifecycle.Event
   alias BeamConsole.Lifecycle.Observation
   alias BeamConsole.Lifecycle.PendingExit
-  alias BeamConsole.Lifecycle.RefreshRequest
   alias BeamConsole.Lifecycle.Recorder.State
+  alias BeamConsole.Lifecycle.RefreshRequest
   alias BeamConsole.Lifecycle.Watch
   alias BeamConsole.ReasonSummary
   alias BeamConsole.Recorder.Config
@@ -26,6 +26,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
   alias BeamConsole.Recorder.History
   alias BeamConsole.Recorder.Query
   alias BeamConsole.Recorder.Status
+  alias BeamConsole.Recording.Control, as: RecordingControl
+  alias BeamConsole.Recording.Status, as: RecordingStatus
 
   @type status :: Status.t()
   @type query_error :: {:error, {:invalid_query_options, term()}}
@@ -69,13 +71,13 @@ defmodule BeamConsole.Lifecycle.Recorder do
     GenServer.cast(server, :deactivate)
   end
 
-  @doc "Pauses recording until an operator explicitly resumes it."
+  @doc "Pauses recording through the configured authority until explicitly resumed."
   @spec pause(GenServer.server(), timeout()) :: Status.t()
   def pause(server \\ __MODULE__, timeout \\ 5_000) do
     GenServer.call(server, :pause, timeout)
   end
 
-  @doc "Resumes recording when subscriber or always-on demand is present."
+  @doc "Resumes through the configured authority when recording demand is present."
   @spec resume(GenServer.server(), timeout()) :: Status.t()
   def resume(server \\ __MODULE__, timeout \\ 5_000) do
     GenServer.call(server, :resume, timeout)
@@ -117,15 +119,20 @@ defmodule BeamConsole.Lifecycle.Recorder do
     system_clock = Keyword.get(options, :system_clock, &system_ms/0)
     refresh_timeout = refresh_timeout!(Keyword.get(options, :refresh_timeout, 250))
     refresh_requester = refresh_requester!(options)
+    recording_control = Keyword.get(options, :recording_control)
+    recording_status = register_recording_control(recording_control)
 
     state = %State{
       config: config,
       history: History.new(config),
+      recording_control: recording_control,
+      recording_revision: recording_status.revision,
       refresh_requester: refresh_requester,
       refresh_timeout: refresh_timeout,
       monotonic_clock: monotonic_clock,
       system_clock: system_clock,
-      demanded?: config.mode == :always
+      demanded?: config.mode == :always,
+      paused?: recording_status.paused?
     }
 
     {:ok, if(config.mode == :always, do: start_recording(state), else: state)}
@@ -138,14 +145,12 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   def handle_call(:pause, _from, state) do
-    state = state |> flush_pending_events() |> Map.put(:paused?, true) |> stop_recording()
+    state = apply_operator_intent(state, true)
     {:reply, status_from_state(state), state}
   end
 
   def handle_call(:resume, _from, state) do
-    state = %{state | paused?: false}
-    state = if state.demanded?, do: start_recording(state), else: state
-    state = maybe_schedule_reconciliation(state)
+    state = apply_operator_intent(state, false)
     {:reply, status_from_state(state), state}
   end
 
@@ -237,7 +242,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
         {:DOWN, monitor_ref, :process, _requester, _reason},
         %State{refresh_request: %{monitor_ref: monitor_ref} = request} = state
       ) do
-    outcome = if request.timed_out?, do: :error, else: request.outcome || :error
+    outcome = refresh_request_outcome(request)
     {:noreply, complete_refresh_request(state, outcome)}
   end
 
@@ -272,6 +277,13 @@ defmodule BeamConsole.Lifecycle.Recorder do
     {:noreply, maybe_start_refresh_request(state)}
   end
 
+  def handle_info(
+        {RecordingControl, %RecordingStatus{} = status},
+        state
+      ) do
+    {:noreply, apply_recording_status(state, status)}
+  end
+
   def handle_info(_message, state) do
     {:noreply, state}
   end
@@ -292,6 +304,87 @@ defmodule BeamConsole.Lifecycle.Recorder do
       {:error, _reason} = error ->
         {:reply, error, state}
     end
+  end
+
+  defp register_recording_control(nil) do
+    %RecordingStatus{paused?: false, revision: 0}
+  end
+
+  defp register_recording_control(control) do
+    RecordingControl.register(:recorder, control)
+  end
+
+  defp apply_recording_status(
+         %State{recording_revision: revision} = state,
+         %RecordingStatus{revision: incoming_revision}
+       )
+       when incoming_revision <= revision do
+    state
+  end
+
+  defp apply_recording_status(state, %RecordingStatus{paused?: true} = status) do
+    state
+    |> Map.put(:recording_revision, status.revision)
+    |> pause_recording()
+  end
+
+  defp apply_recording_status(state, %RecordingStatus{paused?: false} = status) do
+    state
+    |> Map.put(:recording_revision, status.revision)
+    |> resume_recording()
+  end
+
+  defp apply_operator_intent(%State{recording_control: nil} = state, true) do
+    pause_recording(state)
+  end
+
+  defp apply_operator_intent(%State{recording_control: nil} = state, false) do
+    resume_recording(state)
+  end
+
+  defp apply_operator_intent(state, paused?) do
+    status = set_authoritative_pause(state.recording_control, paused?)
+    state = %{state | recording_revision: max(state.recording_revision, status.revision)}
+
+    if paused?, do: pause_recording(state), else: resume_recording(state)
+  end
+
+  defp set_authoritative_pause(control, true) do
+    RecordingControl.pause(control)
+  end
+
+  defp set_authoritative_pause(control, false) do
+    RecordingControl.resume(control)
+  end
+
+  defp pause_recording(state) do
+    state
+    |> flush_pending_events()
+    |> Map.put(:paused?, true)
+    |> stop_recording()
+    |> cancel_reconciliation()
+  end
+
+  defp resume_recording(state) do
+    state = %{state | paused?: false}
+    state = if state.demanded?, do: start_recording(state), else: state
+    maybe_schedule_reconciliation(state)
+  end
+
+  defp cancel_reconciliation(%State{refresh_request: nil} = state) do
+    %{state | refresh_pending?: false, reconcile_scheduled?: false}
+  end
+
+  defp cancel_reconciliation(%State{refresh_request: request} = state) do
+    cancel_refresh_timeout(request.timeout_ref)
+    :ok = RefreshRequest.cancel(request.pid)
+
+    %{
+      state
+      | refresh_request: %{request | cancelled?: true},
+        refresh_pending?: false,
+        reconcile_scheduled?: false
+    }
   end
 
   defp validate_query_options(options, kind) when is_list(options) do
@@ -747,7 +840,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
       monitor_ref: monitor_ref,
       timeout_ref: timeout_ref,
       outcome: nil,
-      timed_out?: false
+      timed_out?: false,
+      cancelled?: false
     }
 
     %{state | refresh_request: request}
@@ -789,7 +883,23 @@ defmodule BeamConsole.Lifecycle.Recorder do
     :ok
   end
 
+  defp refresh_request_outcome(%{cancelled?: true}) do
+    :cancelled
+  end
+
+  defp refresh_request_outcome(%{timed_out?: true}) do
+    :error
+  end
+
+  defp refresh_request_outcome(request) do
+    request.outcome || :error
+  end
+
   defp missed_reconciliation_increment(:ok) do
+    0
+  end
+
+  defp missed_reconciliation_increment(:cancelled) do
     0
   end
 

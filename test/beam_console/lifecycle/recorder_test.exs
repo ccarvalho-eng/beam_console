@@ -5,6 +5,7 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
   alias BeamConsole.Lifecycle.Recorder
   alias BeamConsole.Recorder.Config
   alias BeamConsole.Recorder.Frame
+  alias BeamConsole.Recording.Control, as: RecordingControl
 
   test "records sanitized direct exits only after lazy activation" do
     recorder = start_recorder()
@@ -116,6 +117,31 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     assert Recorder.resume(recorder).activity == :recording
   end
 
+  test "always mode starts paused and stays paused across recorder restarts" do
+    control = start_recording_control()
+    RecordingControl.pause(control)
+    name = Module.concat(__MODULE__, "ControlledRecorder#{System.unique_integer([:positive])}")
+
+    recorder_spec =
+      Supervisor.child_spec(
+        {Recorder,
+         name: name,
+         config: Config.new!(mode: :always),
+         recording_control: control,
+         refresh_requester: nil},
+        id: name
+      )
+
+    recorder = start_supervised!(recorder_spec)
+    assert eventually(fn -> Recorder.status(recorder).paused? end)
+    refute Recorder.status(recorder).active?
+
+    assert :ok = stop_supervised(name)
+    replacement = start_supervised!(recorder_spec)
+    assert eventually(fn -> Recorder.status(replacement).paused? end)
+    refute Recorder.status(replacement).active?
+  end
+
   test "resume requests a deferred reconciliation when recording demand remains" do
     owner = self()
     requester = fn -> send(owner, :refresh_requested) end
@@ -155,6 +181,76 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
 
     send(requester_pid, :release_refresh)
     assert eventually(fn -> Recorder.status(recorder).missed_reconciliations == 0 end)
+  end
+
+  test "authoritative pause cancels an in-flight reconciliation and suppresses stale work" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, {:controlled_refresh_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    control = start_recording_control()
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        recording_control: control,
+        refresh_requester: requester,
+        refresh_timeout: 1_000
+      )
+
+    send(recorder, :reconcile_after_down)
+    assert_receive {:controlled_refresh_started, first_requester}
+    first_monitor = Process.monitor(first_requester)
+
+    RecordingControl.pause(control)
+    assert eventually(fn -> Recorder.status(recorder).paused? end)
+    assert_receive {:DOWN, ^first_monitor, :process, ^first_requester, _reason}
+
+    send(recorder, :reconcile_after_down)
+    refute_receive {:controlled_refresh_started, _requester}, 100
+
+    RecordingControl.resume(control)
+    assert_receive {:controlled_refresh_started, resumed_requester}
+    Process.exit(resumed_requester, :kill)
+  end
+
+  test "resume waits for a canceling reconciliation to terminate before starting another" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, {:controlled_refresh_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    control = start_recording_control()
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        recording_control: control,
+        refresh_requester: requester,
+        refresh_timeout: 1_000
+      )
+
+    send(recorder, :reconcile_after_down)
+    assert_receive {:controlled_refresh_started, first_requester}
+
+    guardian = :sys.get_state(recorder).refresh_request.pid
+    true = :erlang.suspend_process(guardian)
+
+    RecordingControl.pause(control)
+    RecordingControl.resume(control)
+
+    refute_receive {:controlled_refresh_started, _requester}, 100
+    assert Process.alive?(first_requester)
+
+    true = :erlang.resume_process(guardian)
+    assert_receive {:controlled_refresh_started, second_requester}
+    refute second_requester == first_requester
+    Process.exit(second_requester, :kill)
   end
 
   test "requester failures are sanitized and counted without stopping recording" do
@@ -541,6 +637,12 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     end)
 
     pid
+  end
+
+  defp start_recording_control do
+    name = Module.concat(__MODULE__, "RecordingControl#{System.unique_integer([:positive])}")
+
+    start_supervised!(Supervisor.child_spec({RecordingControl, name: name}, id: name))
   end
 
   defp frame(sequence, monotonic_ms, coverage \\ :complete) do

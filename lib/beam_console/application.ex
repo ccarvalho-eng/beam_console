@@ -13,14 +13,18 @@ defmodule BeamConsole.Application do
     recorder_config = BeamConsole.Config.recorder()
 
     children = [
+      BeamConsole.Recording.Control,
       {Task.Supervisor, name: BeamConsole.TaskSupervisor},
       {BeamConsole.Lifecycle.Recorder,
-       config: recorder_config, refresh_requester: &BeamConsole.Collector.request_reconciliation/0},
+       config: recorder_config,
+       recording_control: BeamConsole.Recording.Control,
+       refresh_requester: &BeamConsole.Collector.request_reconciliation/0},
       {BeamConsole.Collector,
        lifecycle_recorder: BeamConsole.Lifecycle.Recorder,
+       recording_control: BeamConsole.Recording.Control,
        always_record?: recorder_config.mode == :always}
     ]
 
-    Supervisor.start_link(children, strategy: :one_for_one, name: BeamConsole.Supervisor)
+    Supervisor.start_link(children, strategy: :rest_for_one, name: BeamConsole.Supervisor)
   end
 end

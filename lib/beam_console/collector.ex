@@ -16,10 +16,12 @@ defmodule BeamConsole.Collector do
   alias BeamConsole.Config
   alias BeamConsole.Diff
   alias BeamConsole.EntityId
-  alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
   alias BeamConsole.Lifecycle.DiffEvents
+  alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
   alias BeamConsole.ReasonSummary
   alias BeamConsole.Recorder.Frame
+  alias BeamConsole.Recording.Control, as: RecordingControl
+  alias BeamConsole.Recording.Status, as: RecordingStatus
   alias BeamConsole.Runtime.InternalProcesses
   alias BeamConsole.Runtime.Local
   alias BeamConsole.Snapshot
@@ -28,6 +30,9 @@ defmodule BeamConsole.Collector do
             runtime: Local,
             runtime_options: [],
             lifecycle_recorder: nil,
+            recording_control: nil,
+            recording_paused?: false,
+            recording_revision: 0,
             always_record?: false,
             recorder_gap?: false,
             recorder_epoch: nil,
@@ -54,6 +59,9 @@ defmodule BeamConsole.Collector do
           runtime: module(),
           runtime_options: keyword(),
           lifecycle_recorder: GenServer.server() | nil,
+          recording_control: GenServer.server() | nil,
+          recording_paused?: boolean(),
+          recording_revision: non_neg_integer(),
           always_record?: boolean(),
           recorder_gap?: boolean(),
           recorder_epoch: String.t(),
@@ -160,11 +168,17 @@ defmodule BeamConsole.Collector do
       |> Keyword.take(Config.runtime_keys())
       |> Keyword.merge(Keyword.get(options, :runtime_options, []))
 
+    recording_control = Keyword.get(options, :recording_control)
+    recording_status = register_recording_control(recording_control)
+
     state = %__MODULE__{
       name: Keyword.fetch!(options, :name),
       runtime: Keyword.get(options, :runtime, Local),
       runtime_options: runtime_options,
       lifecycle_recorder: Keyword.get(options, :lifecycle_recorder),
+      recording_control: recording_control,
+      recording_paused?: recording_status.paused?,
+      recording_revision: recording_status.revision,
       always_record?: Keyword.get(options, :always_record?, false),
       recorder_epoch: EntityId.build(:event, {:collector_epoch, make_ref()}),
       task_supervisor: Keyword.get(options, :task_supervisor, BeamConsole.TaskSupervisor),
@@ -182,7 +196,7 @@ defmodule BeamConsole.Collector do
       deactivate_lifecycle_recorder(state.lifecycle_recorder)
     end
 
-    {:ok, if(state.always_record?, do: request_scan(state), else: state)}
+    {:ok, if(effective_sampling_demand?(state), do: request_scan(state), else: state)}
   end
 
   @impl GenServer
@@ -227,7 +241,8 @@ defmodule BeamConsole.Collector do
   end
 
   def handle_call(:request_reconciliation, _from, state) do
-    {:reply, :ok, request_scan(state)}
+    next_state = if recording_demand?(state), do: request_scan(state), else: state
+    {:reply, :ok, next_state}
   end
 
   def handle_call({:changes_since, sequence}, _from, state) do
@@ -237,7 +252,8 @@ defmodule BeamConsole.Collector do
 
   @impl GenServer
   def handle_cast(:refresh, state) do
-    {:noreply, request_scan(state)}
+    next_state = if recording_demand?(state), do: request_scan(state), else: state
+    {:noreply, next_state}
   end
 
   @impl GenServer
@@ -312,6 +328,13 @@ defmodule BeamConsole.Collector do
       %Subscriber{monitor_ref: ^reference} -> {:noreply, remove_subscriber(state, subscriber)}
       _other -> {:noreply, state}
     end
+  end
+
+  def handle_info(
+        {RecordingControl, %RecordingStatus{} = status},
+        state
+      ) do
+    {:noreply, apply_recording_status(state, status)}
   end
 
   def handle_info(_message, state) do
@@ -407,14 +430,13 @@ defmodule BeamConsole.Collector do
     request_scan(%{state | pending_refresh?: false})
   end
 
-  defp schedule_after_scan(state)
-       when map_size(state.subscribers) > 0 or state.always_record? do
-    cancel_timer(state.tick_ref)
-    schedule_scan(%{state | tick_ref: nil}, state.interval)
-  end
-
   defp schedule_after_scan(state) do
-    state
+    if effective_sampling_demand?(state) do
+      cancel_timer(state.tick_ref)
+      schedule_scan(%{state | tick_ref: nil}, state.interval)
+    else
+      state
+    end
   end
 
   defp add_subscriber(state, subscriber) do
@@ -464,14 +486,14 @@ defmodule BeamConsole.Collector do
     state
   end
 
-  defp after_subscriber_removed(%{always_record?: false} = state) do
-    cancel_timer(state.tick_ref)
-    deactivate_lifecycle_recorder(state.lifecycle_recorder)
-    %{state | tick_ref: nil, pending_refresh?: false}
-  end
-
-  defp after_subscriber_removed(%{always_record?: true} = state) do
-    state
+  defp after_subscriber_removed(state) do
+    if background_sampling_demand?(state) do
+      state
+    else
+      cancel_timer(state.tick_ref)
+      deactivate_lifecycle_recorder(state.lifecycle_recorder)
+      %{state | tick_ref: nil, pending_refresh?: false}
+    end
   end
 
   defp notify_subscribers(state) do
@@ -563,7 +585,7 @@ defmodule BeamConsole.Collector do
     recorder = state.lifecycle_recorder
 
     if recorder_available?(recorder) do
-      if state.always_record? or map_size(state.subscribers) > 0 do
+      if recording_demand?(state) do
         LifecycleRecorder.activate(recorder)
       end
 
@@ -581,6 +603,72 @@ defmodule BeamConsole.Collector do
     else
       %{state | recorder_gap?: true}
     end
+  end
+
+  defp register_recording_control(nil) do
+    %RecordingStatus{paused?: false, revision: 0}
+  end
+
+  defp register_recording_control(control) do
+    RecordingControl.register(:collector, control)
+  end
+
+  defp apply_recording_status(
+         %{recording_revision: revision} = state,
+         %RecordingStatus{revision: incoming_revision}
+       )
+       when incoming_revision <= revision do
+    state
+  end
+
+  defp apply_recording_status(state, %RecordingStatus{paused?: true} = status) do
+    state = %{
+      state
+      | recording_paused?: true,
+        recording_revision: status.revision
+    }
+
+    if viewer_sampling_demand?(state) do
+      state
+    else
+      cancel_timer(state.tick_ref)
+      %{state | tick_ref: nil, pending_refresh?: false}
+    end
+  end
+
+  defp apply_recording_status(state, %RecordingStatus{paused?: false} = status) do
+    state = %{
+      state
+      | recording_paused?: false,
+        recording_revision: status.revision
+    }
+
+    ensure_demand_scan(state)
+  end
+
+  defp ensure_demand_scan(%{scan: nil, tick_ref: nil} = state) do
+    if effective_sampling_demand?(state), do: request_scan(state), else: state
+  end
+
+  defp ensure_demand_scan(state) do
+    state
+  end
+
+  defp effective_sampling_demand?(state) do
+    viewer_sampling_demand?(state) or background_sampling_demand?(state)
+  end
+
+  defp viewer_sampling_demand?(state) do
+    map_size(state.subscribers) > 0
+  end
+
+  defp background_sampling_demand?(state) do
+    state.always_record? and not state.recording_paused?
+  end
+
+  defp recording_demand?(state) do
+    not state.recording_paused? and
+      (state.always_record? or viewer_sampling_demand?(state))
   end
 
   defp activate_lifecycle_recorder(nil) do
