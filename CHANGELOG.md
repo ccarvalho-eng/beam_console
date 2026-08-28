@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Keep always-on lifecycle recording active across zero-viewer and runtime-service restart windows.
+- Add bounded, acknowledged lifecycle reconciliation without collector-recorder dependency cycles.
+- Distinguish exact VM process totals from the bounded set inspected by the collector.
+- Add bounded runtime-client timeouts and explicit stale-service handling in the console.
+- Preserve process, lifecycle, graph, chart, selection, and folder-tree continuity across live samples.
+- Add responsive runtime and inspector drawers with modal focus isolation and keyboard dismissal.
+
 ## 0.2.0 - 2026-08-27
 
 - Add atom count, atom limit, and utilization to the Runtime summary.
