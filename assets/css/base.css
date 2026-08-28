@@ -407,8 +407,7 @@
 
 .beam-console-panel-toggle,
 .beam-console-panel-backdrop,
-.beam-console-focus-inspector,
-.beam-console-focus-exit {
+.beam-console-focus-bar {
   display: none;
 }
 .beam-console-visually-hidden {

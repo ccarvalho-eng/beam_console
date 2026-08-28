@@ -17,7 +17,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.5.1"}
+    {:beam_console, "~> 0.5.2"}
   ]
 end
 ```
@@ -69,7 +69,7 @@ Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer n
 - Activity: reductions per second, mailbox growth, memory movement, and ranked process movers.
 - Runtime: BEAM memory categories, CPU/I/O run queues, input/output throughput, process, port, and atom capacity, scheduler topology, uptime, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
 - Inspector: allowlisted process, application, and node details, including scheduling, heap, and selected garbage-collection diagnostics. Process relationships and group leaders are clickable when their target is present in the latest sample.
-- Focus mode: hide navigation, hierarchy, recording controls, and summary cards without interrupting collection or recording. Press `F` to toggle it or `Escape` to leave it; the mount-scoped preference persists locally.
+- Focus mode: use the active workspace at full viewport size with a dedicated control bar and on-demand runtime hierarchy drawer, without interrupting collection or recording. Press `F` to toggle it or `Escape` to leave it; the mount-scoped preference persists locally.
 
 Applications are grouped into host, dependencies, OTP, and tooling categories. Every tree branch can be collapsed and its state remains stable while LiveView updates.
 

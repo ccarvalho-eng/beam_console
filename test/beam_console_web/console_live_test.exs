@@ -54,17 +54,22 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
 
     assert has_element?(
              view,
-             "#beam-console-focus-mode + #beam-console-refresh + #beam-console-theme-switcher button[data-beam-console-theme='system']"
+             "#beam-console-refresh + #beam-console-focus-mode + #beam-console-theme-switcher button[data-beam-console-theme='system']"
            )
 
     assert has_element?(
              view,
-             "#beam-console-focus-exit[data-beam-console-focus-toggle][aria-pressed='false']"
+             "#beam-console-focus-bar #beam-console-focus-exit[data-beam-console-focus-toggle][aria-pressed='false']"
            )
 
     assert has_element?(
              view,
-             "#beam-console-focus-inspector[data-beam-console-panel-toggle='inspector'][aria-expanded='false']"
+             "#beam-console-focus-bar #beam-console-focus-runtime[data-beam-console-panel-toggle='runtime'][aria-expanded='false']"
+           )
+
+    assert has_element?(
+             view,
+             "#beam-console-focus-bar #beam-console-focus-inspector[data-beam-console-panel-toggle='inspector'][aria-expanded='false']"
            )
 
     assert has_element?(

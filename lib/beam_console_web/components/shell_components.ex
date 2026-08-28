@@ -150,6 +150,19 @@ if Code.ensure_loaded?(Phoenix.Component) do
           </button>
 
           <button
+            id="beam-console-refresh"
+            class={["beam-console-icon-button", @refresh_pending? && "is-pending"]}
+            phx-click="refresh"
+            aria-label="Refresh runtime sample"
+            data-tooltip="Refresh sample"
+            aria-busy={if(@refresh_pending?, do: "true", else: "false")}
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+          </button>
+
+          <button
             id="beam-console-focus-mode"
             type="button"
             class="beam-console-icon-button"
@@ -161,19 +174,6 @@ if Code.ensure_loaded?(Phoenix.Component) do
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5" />
-            </svg>
-          </button>
-
-          <button
-            id="beam-console-refresh"
-            class={["beam-console-icon-button", @refresh_pending? && "is-pending"]}
-            phx-click="refresh"
-            aria-label="Refresh runtime sample"
-            data-tooltip="Refresh sample"
-            aria-busy={if(@refresh_pending?, do: "true", else: "false")}
-          >
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
           </button>
 

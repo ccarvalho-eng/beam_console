@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.5.2 - 2026-08-28
+
+- Move Focus controls into a dedicated full-viewport bar so they never cover workspace headings.
+- Make the runtime hierarchy available as an accessible Focus drawer at every viewport width.
+- Place the Focus control immediately before the theme switcher in the standard header.
+
 ## 0.5.1 - 2026-08-28
 
 - Add a mount-scoped Focus mode that removes surrounding chrome without changing sampling or recording.
