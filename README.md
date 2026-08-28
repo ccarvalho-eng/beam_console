@@ -68,7 +68,7 @@ Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer n
 - Lifecycle: observed process starts, terminations, and replacement correlations with explicit evidence and coverage language.
 - Activity: reductions per second, mailbox growth, memory movement, and ranked process movers.
 - Runtime: BEAM memory categories, run queue, atom count and utilization, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
-- Inspector: allowlisted process, application, and node details. Process relationships are clickable when their target is present in the latest sample.
+- Inspector: allowlisted process, application, and node details, including scheduling, heap, and selected garbage-collection diagnostics. Process relationships and group leaders are clickable when their target is present in the latest sample.
 
 Applications are grouped into host, dependencies, OTP, and tooling categories. Every tree branch can be collapsed and its state remains stable while LiveView updates.
 

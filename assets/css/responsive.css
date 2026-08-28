@@ -52,6 +52,10 @@
     grid-column: 2;
     grid-row: 1 / span 2;
   }
+
+  .beam-console-diagnostics {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 760px) {

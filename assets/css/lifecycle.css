@@ -242,11 +242,13 @@
   text-align: right;
 }
 
-.beam-console-relation {
+.beam-console-relation,
+.beam-console-diagnostics {
   margin-top: 17px;
 }
 
-.beam-console-relation h4 {
+.beam-console-relation h4,
+.beam-console-diagnostics h4 {
   margin: 0 0 7px;
   color: var(--bc-muted);
   font-size: 9px;
