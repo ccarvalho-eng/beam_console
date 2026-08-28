@@ -18,6 +18,25 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.runtime_sample.atom_count <= snapshot.runtime_sample.atom_limit
     assert snapshot.runtime_sample.memory_total > 0
     assert snapshot.runtime_sample.scheduler_count > 0
+
+    pressure = snapshot.runtime_sample.pressure
+
+    assert pressure.uptime_ms >= 0
+    assert pressure.port_count >= 0
+    assert pressure.port_count <= pressure.port_limit
+    assert pressure.process_limit == :erlang.system_info(:process_limit)
+    assert pressure.scheduler_total == :erlang.system_info(:schedulers)
+    assert pressure.scheduler_online == :erlang.system_info(:schedulers_online)
+    assert pressure.dirty_cpu_scheduler_total == :erlang.system_info(:dirty_cpu_schedulers)
+
+    assert pressure.dirty_cpu_scheduler_online ==
+             :erlang.system_info(:dirty_cpu_schedulers_online)
+
+    assert pressure.dirty_io_scheduler_total == :erlang.system_info(:dirty_io_schedulers)
+    assert pressure.run_queue_total >= pressure.run_queue_cpu
+    assert pressure.run_queue_io == pressure.run_queue_total - pressure.run_queue_cpu
+    assert pressure.io_input_bytes >= 0
+    assert pressure.io_output_bytes >= 0
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.pid == self() end)
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.label == "nil" end)
   end

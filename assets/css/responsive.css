@@ -210,6 +210,19 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .beam-console-runtime-summary {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+  }
+
+  .beam-console-runtime-summary > div {
+    min-width: min(180px, 72vw);
+    flex: 0 0 min(180px, 72vw);
+    scroll-snap-align: start;
+  }
+
   .beam-console-chart-grid {
     grid-template-columns: minmax(0, 1fr);
   }

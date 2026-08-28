@@ -17,7 +17,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.4.0"}
+    {:beam_console, "~> 0.5.0"}
   ]
 end
 ```
@@ -67,7 +67,7 @@ Call `BeamConsole.unsubscribe/0` when a long-lived manual subscriber no longer n
 - Process Map: a stable, focused supervision graph with optional process links and monitors, plus a searchable process explorer.
 - Lifecycle: observed process starts, terminations, and replacement correlations with explicit evidence and coverage language.
 - Activity: reductions per second, mailbox growth, memory movement, and ranked process movers.
-- Runtime: BEAM memory categories, run queue, atom count and utilization, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
+- Runtime: BEAM memory categories, CPU/I/O run queues, input/output throughput, process, port, and atom capacity, scheduler topology, uptime, runtime inventory, collector duration, applications, ETS tables, and connected-node inventory.
 - Inspector: allowlisted process, application, and node details, including scheduling, heap, and selected garbage-collection diagnostics. Process relationships and group leaders are clickable when their target is present in the latest sample.
 
 Applications are grouped into host, dependencies, OTP, and tooling categories. Every tree branch can be collapsed and its state remains stable while LiveView updates.
@@ -169,9 +169,11 @@ config :beam_console, :recorder,
 
 BeamConsole does not fetch process messages, dictionaries, stacktraces, binaries, or arbitrary process state. It does not use `:sys`, tracing, remote RPC, or process mutation. Browser inputs are matched against fixed allowlists and opaque entity IDs are revalidated against the latest snapshot.
 
+Runtime pressure retains only fixed-shape scalar measurements collected from public ERTS APIs inside the existing non-overlapping collector scan. It does not enable scheduler wall-time measurement, inspect allocators, enumerate ports or sockets, expose host paths or endpoints, or retain raw runtime terms. Cumulative I/O counters are converted into rates only between valid adjacent samples; resets, recording gaps, missing counters, regressions, and invalid elapsed times remain chart discontinuities.
+
 ## Compared with Observer and Phoenix LiveDashboard
 
-Observer is a broad Erlang runtime desktop tool. Phoenix LiveDashboard is a Phoenix-focused operational dashboard built around metrics and framework integrations. BeamConsole is narrower: it is an embeddable, process-first tool focused on supervision topology, observed crash-and-replacement history, process relationships, and bounded activity over time.
+Observer is a broad Erlang runtime desktop tool. Phoenix LiveDashboard is a Phoenix-focused operational dashboard built around metrics and framework integrations. BeamConsole combines selected read-only runtime health signals from those tools with an embeddable, process-first view of supervision topology, observed crash-and-replacement history, process relationships, and bounded activity over time.
 
 ## Demo
 

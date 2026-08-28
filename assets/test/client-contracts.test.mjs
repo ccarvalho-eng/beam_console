@@ -94,16 +94,20 @@ test("chart headline distinguishes a value from multiple series", () => {
   );
   assert.equal(
     chartHeadline(
-      [{ points: [[1, 1, 0]] }, { points: [[1, 2, 0]] }],
+      [
+        { label: "Input", points: [[1, 1, 0]] },
+        { label: "Output", points: [[1, 2, 0]] }
+      ],
       "bytes",
       format
     ),
-    "2 series"
+    "Input 1 bytes · Output 2 bytes"
   );
 });
 
 test("chart values preserve percentage units", () => {
   assert.equal(formatChartValue(11.77, "%"), "11.8%");
+  assert.equal(formatChartValue(2048, "bytes/s"), "2.0 KB/s");
 });
 
 test("chart domains honor meaningful fixed bounds", () => {
@@ -328,6 +332,10 @@ test("runtime summary adapts before cards become cramped", async () => {
   assert.match(
     stylesheet,
     /\.beam-console-runtime-summary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(150px, 1fr\)\)/
+  );
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?\.beam-console-runtime-summary\s*\{[\s\S]*?display:\s*flex[\s\S]*?overflow-x:\s*auto/
   );
 });
 

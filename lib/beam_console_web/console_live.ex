@@ -78,7 +78,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:lifecycle_meta, %{empty?: true, omitted: 0})
         |> assign(:activity_summary, empty_activity_summary())
         |> assign(:activity_has_samples?, false)
-        |> assign(:runtime_summary, empty_runtime_summary())
+        |> assign(:runtime_summary, RuntimePresenter.empty_summary())
         |> assign(:runtime_has_samples?, false)
         |> assign(:process_stream_order, [])
         |> assign(:lifecycle_stream_ids, MapSet.new())
@@ -762,21 +762,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp empty_activity_summary do
       %{reductions_per_second: 0, mailbox_delta: 0, memory_delta: 0, omitted: 0}
-    end
-
-    defp empty_runtime_summary do
-      %{
-        process_count: 0,
-        inspected_process_count: 0,
-        supervisor_count: 0,
-        ets_count: 0,
-        run_queue: nil,
-        atom_count: nil,
-        atom_limit: nil,
-        atom_utilization: nil,
-        collector_partial?: false,
-        omitted: 0
-      }
     end
   end
 end

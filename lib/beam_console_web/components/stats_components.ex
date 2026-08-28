@@ -80,9 +80,12 @@ if Code.ensure_loaded?(Phoenix.Component) do
           <div class="beam-console-recorder-summary beam-console-runtime-summary">
             <div>
               <span>Processes</span>
-              <strong>{@summary.process_count}</strong>
+              <strong>{format_integer(@summary.process_count)}</strong>
               <small :if={@summary.inspected_process_count < @summary.process_count}>
-                {@summary.inspected_process_count} inspected by the bounded collector
+                {format_integer(@summary.inspected_process_count)} inspected by the bounded collector
+              </small>
+              <small :if={@summary.process_limit}>
+                {capacity(@summary.process_limit, @summary.process_utilization)}
               </small>
             </div>
             <div><span>Supervisors</span><strong>{@summary.supervisor_count}</strong></div>
@@ -98,8 +101,35 @@ if Code.ensure_loaded?(Phoenix.Component) do
                 {atom_capacity(@summary.atom_limit, @summary.atom_utilization)}. Atoms persist for the VM lifetime.
               </small>
             </div>
+            <div>
+              <span>Ports</span>
+              <strong>{capacity_count(@summary.port_count, @summary.port_limit)}</strong>
+              <small>{capacity_usage(@summary.port_utilization)}</small>
+            </div>
+            <div>
+              <span>Schedulers</span>
+              <strong>{scheduler_capacity(@summary.scheduler_online, @summary.scheduler_total)}</strong>
+              <small>
+                {dirty_schedulers(
+                  @summary.dirty_cpu_scheduler_online,
+                  @summary.dirty_cpu_scheduler_total,
+                  @summary.dirty_io_scheduler_total
+                )}
+              </small>
+            </div>
             <div><span>ETS tables</span><strong>{@summary.ets_count}</strong></div>
-            <div><span>Run queue</span><strong>{@summary.run_queue || "—"}</strong></div>
+            <div>
+              <span>Run queue</span><strong>{format_optional_number(@summary.run_queue)}</strong>
+              <small>{run_queue_split(@summary.run_queue_cpu, @summary.run_queue_io)}</small>
+            </div>
+            <div>
+              <span>I/O throughput</span>
+              <strong>
+                {io_throughput(@summary.io_input_per_second, @summary.io_output_per_second)}
+              </strong>
+              <small>input · output per second</small>
+            </div>
+            <div><span>Uptime</span><strong>{format_uptime(@summary.uptime_ms)}</strong></div>
           </div>
 
           <div class="beam-console-tab-scroll">
@@ -111,6 +141,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
               ids={[
                 "runtime-memory",
                 "runtime-run-queue",
+                "runtime-io",
                 "runtime-counts",
                 "runtime-scan",
                 "runtime-atoms"
@@ -176,6 +207,85 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
     defp atom_capacity(_limit, _utilization) do
       "Limit unavailable"
+    end
+
+    defp capacity(limit, utilization) when is_integer(limit) do
+      "of #{format_integer(limit)} · #{capacity_usage(utilization)}"
+    end
+
+    defp capacity(_limit, _utilization) do
+      "Limit unavailable"
+    end
+
+    defp capacity_count(count, limit) when is_integer(count) and is_integer(limit) do
+      "#{format_integer(count)} of #{format_integer(limit)}"
+    end
+
+    defp capacity_count(_count, _limit) do
+      "—"
+    end
+
+    defp capacity_usage(utilization) when is_number(utilization) do
+      "#{format_percentage(utilization)} used"
+    end
+
+    defp capacity_usage(_utilization) do
+      "Usage unavailable"
+    end
+
+    defp scheduler_capacity(online, total) when is_integer(online) and is_integer(total) do
+      "#{format_integer(online)} of #{format_integer(total)} online"
+    end
+
+    defp scheduler_capacity(_online, _total) do
+      "—"
+    end
+
+    defp dirty_schedulers(cpu_online, cpu_total, io_total)
+         when is_integer(cpu_online) and is_integer(cpu_total) and is_integer(io_total) do
+      "Dirty CPU #{cpu_online}/#{cpu_total} · Dirty I/O #{io_total}"
+    end
+
+    defp dirty_schedulers(_cpu_online, _cpu_total, _io_total) do
+      "Dirty scheduler topology unavailable"
+    end
+
+    defp run_queue_split(cpu, io) when is_integer(cpu) and is_integer(io) do
+      "CPU #{format_integer(cpu)} · I/O #{format_integer(io)}"
+    end
+
+    defp run_queue_split(_cpu, _io) do
+      "Queue split unavailable"
+    end
+
+    defp io_throughput(input, output) do
+      "In #{format_rate(input)} · Out #{format_rate(output)}"
+    end
+
+    defp format_rate(nil) do
+      "—"
+    end
+
+    defp format_rate(value) do
+      "#{format_bytes(value)}/s"
+    end
+
+    defp format_uptime(milliseconds) when is_integer(milliseconds) and milliseconds >= 0 do
+      total_minutes = div(milliseconds, 60_000)
+      days = div(total_minutes, 1_440)
+      hours = total_minutes |> rem(1_440) |> div(60)
+      minutes = rem(total_minutes, 60)
+
+      cond do
+        days > 0 -> "#{days}d #{hours}h #{minutes}m"
+        hours > 0 -> "#{hours}h #{minutes}m"
+        total_minutes > 0 -> "#{minutes}m"
+        true -> "#{div(milliseconds, 1_000)}s"
+      end
+    end
+
+    defp format_uptime(_milliseconds) do
+      "—"
     end
 
     defp format_percentage(value) do

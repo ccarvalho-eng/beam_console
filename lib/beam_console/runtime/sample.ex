@@ -6,6 +6,8 @@ defmodule BeamConsole.Runtime.Sample do
   runtime terms, process identifiers, and host paths.
   """
 
+  alias BeamConsole.Runtime.Pressure
+
   @enforce_keys [:sequence, :sampled_at_ms, :monotonic_ms]
   defstruct sequence: 0,
             segment: 0,
@@ -28,6 +30,7 @@ defmodule BeamConsole.Runtime.Sample do
             memory_ets: nil,
             scheduler_count: nil,
             run_queue: nil,
+            pressure: nil,
             collector_scan_ms: nil,
             collector_partial?: false
 
@@ -53,6 +56,7 @@ defmodule BeamConsole.Runtime.Sample do
           memory_ets: non_neg_integer() | nil,
           scheduler_count: pos_integer() | nil,
           run_queue: non_neg_integer() | nil,
+          pressure: Pressure.t() | nil,
           collector_scan_ms: non_neg_integer() | nil,
           collector_partial?: boolean()
         }
