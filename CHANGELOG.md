@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-08-27
 
 - Keep always-on lifecycle recording active across zero-viewer and runtime-service restart windows.
 - Add bounded, acknowledged lifecycle reconciliation without collector-recorder dependency cycles.
