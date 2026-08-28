@@ -9,7 +9,8 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.sequence == 7
     assert snapshot.nodes[snapshot.local_node_id].inspectable?
     assert snapshot.coverage.total_pids >= snapshot.coverage.inspected_pids
-    assert snapshot.runtime_sample.process_count == map_size(snapshot.processes)
+    assert snapshot.runtime_sample.process_count == snapshot.coverage.total_pids
+    assert snapshot.runtime_sample.inspected_process_count == map_size(snapshot.processes)
     assert snapshot.runtime_sample.application_count == map_size(snapshot.applications)
     assert snapshot.runtime_sample.ets_count >= 0
     assert snapshot.runtime_sample.atom_count == :erlang.system_info(:atom_count)
@@ -19,6 +20,14 @@ defmodule BeamConsole.Runtime.LocalTest do
     assert snapshot.runtime_sample.scheduler_count > 0
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.pid == self() end)
     refute Enum.any?(snapshot.processes, fn {_id, process} -> process.label == "nil" end)
+  end
+
+  test "separates the exact VM process total from the bounded inspected count" do
+    assert {:ok, snapshot} = Local.snapshot(sequence: 1, process_limit: 1)
+
+    assert snapshot.runtime_sample.process_count == snapshot.coverage.total_pids
+    assert snapshot.runtime_sample.inspected_process_count == snapshot.coverage.inspected_pids
+    assert snapshot.runtime_sample.process_count > snapshot.runtime_sample.inspected_process_count
   end
 
   test "rejects details for a process absent from the snapshot" do

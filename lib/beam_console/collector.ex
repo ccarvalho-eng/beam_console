@@ -86,9 +86,9 @@ defmodule BeamConsole.Collector do
   end
 
   @doc "Subscribes the caller and starts sampling when it is the first subscriber."
-  @spec subscribe(GenServer.server()) :: {:ok, BeamConsole.Snapshot.t() | nil}
-  def subscribe(server \\ __MODULE__) do
-    GenServer.call(server, {:subscribe, self()})
+  @spec subscribe(GenServer.server(), timeout()) :: {:ok, BeamConsole.Snapshot.t() | nil}
+  def subscribe(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, {:subscribe, self()}, timeout)
   end
 
   @doc "Unsubscribes the caller and stops scheduled sampling when no subscribers remain."
@@ -98,9 +98,10 @@ defmodule BeamConsole.Collector do
   end
 
   @doc "Acknowledges the caller's outstanding snapshot version and releases its newest pending version."
-  @spec acknowledge(non_neg_integer(), GenServer.server()) :: :ok
-  def acknowledge(sequence, server \\ __MODULE__) when is_integer(sequence) and sequence >= 0 do
-    GenServer.call(server, {:acknowledge, self(), sequence})
+  @spec acknowledge(non_neg_integer(), GenServer.server(), timeout()) :: :ok
+  def acknowledge(sequence, server \\ __MODULE__, timeout \\ 5_000)
+      when is_integer(sequence) and sequence >= 0 do
+    GenServer.call(server, {:acknowledge, self(), sequence}, timeout)
   end
 
   @doc "Requests a scan, coalescing the request when a scan is already running."
@@ -110,15 +111,21 @@ defmodule BeamConsole.Collector do
   end
 
   @doc "Requests an operator scan while enforcing the configured refresh cooldown."
-  @spec request_refresh(GenServer.server()) :: :ok | {:error, :rate_limited}
-  def request_refresh(server \\ __MODULE__) do
-    GenServer.call(server, :request_refresh)
+  @spec request_refresh(GenServer.server(), timeout()) :: :ok | {:error, :rate_limited}
+  def request_refresh(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :request_refresh, timeout)
+  end
+
+  @doc "Requests an acknowledged internal reconciliation scan without operator rate limiting."
+  @spec request_reconciliation(GenServer.server(), timeout()) :: :ok
+  def request_reconciliation(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :request_reconciliation, timeout)
   end
 
   @doc "Returns the most recent completed snapshot."
-  @spec latest_snapshot(GenServer.server()) :: BeamConsole.Snapshot.t() | nil
-  def latest_snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :latest_snapshot)
+  @spec latest_snapshot(GenServer.server(), timeout()) :: BeamConsole.Snapshot.t() | nil
+  def latest_snapshot(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :latest_snapshot, timeout)
   end
 
   @doc "Returns the bounded diff produced by the most recent completed scan."
@@ -128,9 +135,9 @@ defmodule BeamConsole.Collector do
   end
 
   @doc "Returns bounded collector health and freshness information."
-  @spec status(GenServer.server()) :: Status.t()
-  def status(server \\ __MODULE__) do
-    GenServer.call(server, :status)
+  @spec status(GenServer.server(), timeout()) :: Status.t()
+  def status(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :status, timeout)
   end
 
   @type changes_result :: {:ok, [Diff.t()]} | {:resync, BeamConsole.Snapshot.t() | nil}
@@ -219,6 +226,10 @@ defmodule BeamConsole.Collector do
     end
   end
 
+  def handle_call(:request_reconciliation, _from, state) do
+    {:reply, :ok, request_scan(state)}
+  end
+
   def handle_call({:changes_since, sequence}, _from, state) do
     result = changes_since_sequence(state, sequence)
     {:reply, result, state}
@@ -247,7 +258,7 @@ defmodule BeamConsole.Collector do
     cancel_timer(state.scan_timeout_ref)
 
     snapshot = %{snapshot | stale?: false, collector_epoch: state.recorder_epoch}
-    monotonic_ms = System.monotonic_time(:millisecond)
+    monotonic_ms = state.monotonic_clock.()
     activity = Activity.sample(state.snapshot, snapshot, monotonic_ms)
     frame = Frame.from_snapshot(snapshot, monotonic_ms, activity)
 
@@ -260,19 +271,21 @@ defmodule BeamConsole.Collector do
     state =
       deliver_lifecycle_observations(state, frame, observations, events: lifecycle_events)
 
-    next_state = %{
+    next_state =
       state
-      | snapshot: snapshot,
+      |> Map.merge(%{
+        snapshot: snapshot,
         diff: diff,
         sequence: snapshot.sequence,
         scan: nil,
         scan_timeout_ref: nil,
         last_error: nil,
         last_failure_at: nil
-    }
+      })
+      |> notify_subscribers()
+      |> schedule_after_scan()
 
-    next_state = notify_subscribers(next_state)
-    {:noreply, schedule_after_scan(next_state)}
+    {:noreply, next_state}
   end
 
   def handle_info({reference, {:error, reason}}, %{scan: %{ref: reference}} = state) do
@@ -457,8 +470,7 @@ defmodule BeamConsole.Collector do
     %{state | tick_ref: nil, pending_refresh?: false}
   end
 
-  defp after_subscriber_removed(state) do
-    deactivate_lifecycle_recorder(state.lifecycle_recorder)
+  defp after_subscriber_removed(%{always_record?: true} = state) do
     state
   end
 

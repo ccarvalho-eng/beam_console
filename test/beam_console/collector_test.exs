@@ -152,6 +152,17 @@ defmodule BeamConsole.CollectorTest do
     send(next_scanner, :release)
   end
 
+  test "acknowledges internal reconciliation independently of operator cooldown", %{
+    collector: collector
+  } do
+    assert :ok = Collector.request_refresh(collector)
+    assert {:error, :rate_limited} = Collector.request_refresh(collector)
+    assert :ok = Collector.request_reconciliation(collector)
+
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, :release)
+  end
+
   test "remains idle until a subscriber arrives", %{collector: collector} do
     refute_receive {:scan_started, _sequence, _pid}
     assert {:ok, nil} = Collector.subscribe(collector)
@@ -210,6 +221,35 @@ defmodule BeamConsole.CollectorTest do
     assert snapshot.collector_epoch == options[:source_epoch]
   end
 
+  test "uses the injected monotonic clock for committed recorder frames" do
+    assert_receive {:"$gen_cast", :deactivate}
+
+    name = Module.concat(__MODULE__, "ClockedCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           lifecycle_recorder: self(),
+           monotonic_clock: fn -> 42 end,
+           interval: 60_000,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, :release)
+
+    assert_receive {:"$gen_cast", {:observe, frame, [], _options}}
+    assert frame.monotonic_ms == 42
+  end
+
   test "does not send sampling task observations to the lifecycle recorder", %{
     collector: collector
   } do
@@ -262,6 +302,74 @@ defmodule BeamConsole.CollectorTest do
     assert options[:reset?] == false
     assert is_binary(options[:source_epoch])
     assert Collector.latest_snapshot(collector).sequence == 1
+  end
+
+  test "does not deactivate always-on recording when the final viewer leaves" do
+    assert_receive {:"$gen_cast", :deactivate}
+
+    name =
+      Module.concat(__MODULE__, "AlwaysSubscriberCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           lifecycle_recorder: self(),
+           always_record?: true,
+           interval: 60_000,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, :release)
+    assert_receive {:"$gen_cast", :activate}
+    assert_receive {:"$gen_cast", {:observe, _frame, [], _options}}
+
+    assert {:ok, %Snapshot{sequence: 1}} = Collector.subscribe(collector)
+    assert_receive {:"$gen_cast", :activate}
+    assert :ok = Collector.unsubscribe(collector)
+
+    refute_receive {:"$gen_cast", :deactivate}
+  end
+
+  test "an always-on collector resumes sampling after restart without a viewer" do
+    assert_receive {:"$gen_cast", :deactivate}
+
+    name =
+      Module.concat(__MODULE__, "RestartedAlwaysCollector#{System.unique_integer([:positive])}")
+
+    collector_spec =
+      Supervisor.child_spec(
+        {Collector,
+         name: name,
+         runtime: FakeRuntime,
+         runtime_options: [owner: self()],
+         lifecycle_recorder: self(),
+         always_record?: true,
+         interval: 60_000,
+         scan_timeout: 2_000,
+         task_supervisor: BeamConsole.TaskSupervisor},
+        id: name
+      )
+
+    _collector = start_supervised!(collector_spec)
+    assert_receive {:scan_started, 1, scanner}
+    send(scanner, :release)
+    assert_receive {:"$gen_cast", :activate}
+    assert_receive {:"$gen_cast", {:observe, _frame, [], _options}}
+
+    assert :ok = stop_supervised(name)
+    _replacement_collector = start_supervised!(collector_spec)
+    assert_receive {:scan_started, 1, replacement_scanner}
+    send(replacement_scanner, :release)
+    assert_receive {:"$gen_cast", :activate}
+    assert_receive {:"$gen_cast", {:observe, _frame, [], _options}}
   end
 
   test "reactivates a restarted recorder while a viewer remains subscribed" do

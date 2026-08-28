@@ -13,7 +13,11 @@ defmodule BeamConsole.Lifecycle.Recorder.State do
 
   defstruct config: nil,
             history: nil,
-            collector: nil,
+            refresh_requester: nil,
+            refresh_timeout: 250,
+            refresh_request: nil,
+            refresh_pending?: false,
+            missed_reconciliations: 0,
             monotonic_clock: nil,
             system_clock: nil,
             demanded?: false,
@@ -35,11 +39,23 @@ defmodule BeamConsole.Lifecycle.Recorder.State do
             deferred: 0
 
   @type clock :: (-> integer())
+  @type refresh_requester :: (-> term()) | nil
+  @type refresh_request :: %{
+          pid: pid(),
+          monitor_ref: reference(),
+          timeout_ref: reference(),
+          outcome: :ok | :error | nil,
+          timed_out?: boolean()
+        }
 
   @type t :: %__MODULE__{
           config: Config.t(),
           history: History.t(),
-          collector: GenServer.server() | nil,
+          refresh_requester: refresh_requester(),
+          refresh_timeout: pos_integer(),
+          refresh_request: refresh_request() | nil,
+          refresh_pending?: boolean(),
+          missed_reconciliations: non_neg_integer(),
           monotonic_clock: clock(),
           system_clock: clock(),
           demanded?: boolean(),

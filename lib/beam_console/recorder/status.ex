@@ -22,6 +22,7 @@ defmodule BeamConsole.Recorder.Status do
             omitted: 0,
             deferred: 0,
             pending_correlations: 0,
+            missed_reconciliations: 0,
             history: %{
               frame_count: 0,
               event_count: 0,
@@ -44,6 +45,7 @@ defmodule BeamConsole.Recorder.Status do
           omitted: non_neg_integer(),
           deferred: non_neg_integer(),
           pending_correlations: non_neg_integer(),
+          missed_reconciliations: non_neg_integer(),
           history: map()
         }
 end

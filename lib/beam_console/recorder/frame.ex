@@ -17,6 +17,7 @@ defmodule BeamConsole.Recorder.Frame do
             sampled_at_ms: 0,
             monotonic_ms: 0,
             process_count: 0,
+            inspected_process_count: 0,
             supervisor_count: 0,
             application_count: 0,
             ets_count: 0,
@@ -31,6 +32,7 @@ defmodule BeamConsole.Recorder.Frame do
           sampled_at_ms: integer(),
           monotonic_ms: integer(),
           process_count: non_neg_integer(),
+          inspected_process_count: non_neg_integer(),
           supervisor_count: non_neg_integer(),
           application_count: non_neg_integer(),
           ets_count: non_neg_integer(),
@@ -47,7 +49,14 @@ defmodule BeamConsole.Recorder.Frame do
       sequence: snapshot.sequence,
       sampled_at_ms: DateTime.to_unix(snapshot.sampled_at, :millisecond),
       monotonic_ms: monotonic_ms,
-      process_count: map_size(snapshot.processes),
+      process_count:
+        runtime_value(snapshot.runtime_sample, :process_count, map_size(snapshot.processes)),
+      inspected_process_count:
+        runtime_value(
+          snapshot.runtime_sample,
+          :inspected_process_count,
+          map_size(snapshot.processes)
+        ),
       supervisor_count: supervisor_count(snapshot),
       application_count: map_size(snapshot.applications),
       ets_count: runtime_value(snapshot.runtime_sample, :ets_count, 0),
