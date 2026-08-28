@@ -331,6 +331,18 @@ test("runtime summary adapts before cards become cramped", async () => {
   );
 });
 
+test("tablet process diagnostics do not compete with relationship rows", async () => {
+  const stylesheet = await readFile(
+    new URL("../../priv/static/beam_console.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 1180px\)[\s\S]*?\.beam-console-diagnostics\s*\{[\s\S]*?grid-column:\s*1 \/ -1/
+  );
+});
+
 test("header navigation keeps a fixed center column across tabs", async () => {
   const stylesheet = await readFile(
     new URL("../../priv/static/beam_console.css", import.meta.url),

@@ -91,6 +91,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
             <dt>Current</dt><dd>{@detail.current_function || "unknown"}</dd>
           </dl>
 
+          <.process_diagnostics diagnostics={@detail.diagnostics} />
+
           <.relation_list
             title="Links"
             values={@detail.links}
@@ -110,6 +112,45 @@ if Code.ensure_loaded?(Phoenix.Component) do
       <% else %>
         <.empty message={@selected.label <> " is no longer available for live inspection."} />
       <% end %>
+      """
+    end
+
+    attr(:diagnostics, :any, default: nil)
+
+    defp process_diagnostics(assigns) do
+      ~H"""
+      <section :if={@diagnostics} class="beam-console-diagnostics">
+        <h4>Scheduling and memory</h4>
+        <dl class="beam-console-fields">
+          <dt>Initial call</dt><dd>{@diagnostics.initial_call || "unknown"}</dd>
+          <dt>Priority</dt><dd>{@diagnostics.priority || "unknown"}</dd>
+          <dt>Trap exits</dt><dd>{format_boolean(@diagnostics.trap_exit)}</dd>
+          <dt>Group leader</dt><dd><.relation_value relation={@diagnostics.group_leader} /></dd>
+          <dt>Heap</dt><dd>{format_words(@diagnostics.heap_size)}</dd>
+          <dt>Total heap</dt><dd>{format_words(@diagnostics.total_heap_size)}</dd>
+          <dt>Stack</dt><dd>{format_words(@diagnostics.stack_size)}</dd>
+          <dt>Minor GCs</dt><dd>{format_integer(@diagnostics.minor_gcs)}</dd>
+          <dt>Fullsweep after</dt><dd>{format_integer(@diagnostics.fullsweep_after)}</dd>
+        </dl>
+      </section>
+      """
+    end
+
+    attr(:relation, :any, default: nil)
+
+    defp relation_value(assigns) do
+      ~H"""
+      <button
+        :if={@relation && @relation.id}
+        type="button"
+        class="beam-console-relation-link"
+        phx-click="select_entity"
+        phx-value-id={@relation.id}
+      >
+        {@relation.label}
+      </button>
+      <span :if={@relation && is_nil(@relation.id)}>{@relation.label}</span>
+      <span :if={is_nil(@relation)}>—</span>
       """
     end
 
@@ -210,8 +251,38 @@ if Code.ensure_loaded?(Phoenix.Component) do
       "—"
     end
 
+    defp format_integer(value) when is_integer(value) and value >= 0 do
+      value
+      |> Integer.to_string()
+      |> String.reverse()
+      |> String.graphemes()
+      |> Enum.chunk_every(3)
+      |> Enum.map_join(",", &Enum.join/1)
+      |> String.reverse()
+    end
+
     defp format_integer(value) do
-      Integer.to_string(value)
+      to_string(value)
+    end
+
+    defp format_words(nil) do
+      "—"
+    end
+
+    defp format_words(value) do
+      "#{format_integer(value)} words"
+    end
+
+    defp format_boolean(true) do
+      "yes"
+    end
+
+    defp format_boolean(false) do
+      "no"
+    end
+
+    defp format_boolean(nil) do
+      "—"
     end
   end
 end

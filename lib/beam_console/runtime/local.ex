@@ -14,6 +14,7 @@ defmodule BeamConsole.Runtime.Local do
   alias BeamConsole.EntityId
   alias BeamConsole.NodeInfo
   alias BeamConsole.ProcessDetail
+  alias BeamConsole.ProcessDetail.Diagnostics
   alias BeamConsole.ProcessInfo
   alias BeamConsole.ProcessRelation
   alias BeamConsole.Runtime.Sample, as: RuntimeSample
@@ -30,7 +31,20 @@ defmodule BeamConsole.Runtime.Local do
     :status
   ]
 
-  @detail_fields @process_fields ++ [:current_function, :links, :monitors, :monitored_by]
+  @detail_fields @process_fields ++
+                   [
+                     :current_function,
+                     :links,
+                     :monitors,
+                     :monitored_by,
+                     :trap_exit,
+                     :priority,
+                     :group_leader,
+                     :total_heap_size,
+                     :heap_size,
+                     :stack_size,
+                     :garbage_collection
+                   ]
 
   @impl BeamConsole.Runtime.Adapter
   def snapshot(options) do
@@ -184,6 +198,7 @@ defmodule BeamConsole.Runtime.Local do
            message_queue_len: values[:message_queue_len],
            status: values[:status],
            last_seen_at: context.sampled_at,
+           diagnostics: process_diagnostics(values, context.process_ids),
            links: links,
            monitors: monitors,
            monitored_by: monitored_by,
@@ -209,6 +224,22 @@ defmodule BeamConsole.Runtime.Local do
       sampled_at: snapshot.sampled_at,
       relationship_limit: Config.get(options, :relationship_limit),
       process_ids: snapshot.processes |> Map.keys() |> MapSet.new()
+    }
+  end
+
+  defp process_diagnostics(values, process_ids) do
+    garbage_collection = values[:garbage_collection]
+
+    %Diagnostics{
+      initial_call: function_label(values[:initial_call]),
+      trap_exit: boolean_value(values[:trap_exit]),
+      priority: priority_value(values[:priority]),
+      group_leader: group_leader_relation(values[:group_leader], process_ids),
+      total_heap_size: non_negative_integer(values[:total_heap_size]),
+      heap_size: non_negative_integer(values[:heap_size]),
+      stack_size: non_negative_integer(values[:stack_size]),
+      minor_gcs: garbage_collection_value(garbage_collection, :minor_gcs),
+      fullsweep_after: garbage_collection_value(garbage_collection, :fullsweep_after)
     }
   end
 
@@ -416,6 +447,48 @@ defmodule BeamConsole.Runtime.Local do
   end
 
   defp safe_string(_value) do
+    nil
+  end
+
+  defp boolean_value(value) when is_boolean(value) do
+    value
+  end
+
+  defp boolean_value(_value) do
+    nil
+  end
+
+  defp priority_value(value) when value in [:low, :normal, :high, :max] do
+    value
+  end
+
+  defp priority_value(_value) do
+    nil
+  end
+
+  defp group_leader_relation(pid, process_ids) when is_pid(pid) do
+    process_relation(pid, process_ids)
+  end
+
+  defp group_leader_relation(_group_leader, _process_ids) do
+    nil
+  end
+
+  defp garbage_collection_value(values, key) when is_list(values) do
+    values
+    |> Keyword.get(key)
+    |> non_negative_integer()
+  end
+
+  defp garbage_collection_value(_values, _key) do
+    nil
+  end
+
+  defp non_negative_integer(value) when is_integer(value) and value >= 0 do
+    value
+  end
+
+  defp non_negative_integer(_value) do
     nil
   end
 

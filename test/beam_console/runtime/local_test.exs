@@ -112,6 +112,44 @@ defmodule BeamConsole.Runtime.LocalTest do
            end)
   end
 
+  test "returns bounded scheduling and memory diagnostics" do
+    owner = self()
+
+    target =
+      spawn(fn ->
+        Process.flag(:trap_exit, true)
+        Process.flag(:priority, :high)
+        send(owner, {:diagnostics_ready, self()})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:diagnostics_ready, ^target}
+    on_exit(fn -> send(target, :stop) end)
+
+    assert {:ok, snapshot} = Local.snapshot(sequence: 1, process_limit: 10_000)
+    assert {:ok, detail} = Local.detail(target, snapshot)
+
+    diagnostics = detail.diagnostics
+
+    assert is_binary(diagnostics.initial_call)
+    assert diagnostics.trap_exit
+    assert diagnostics.priority == :high
+    assert diagnostics.group_leader.label == BeamConsole.EntityId.label(Process.group_leader())
+    assert is_integer(diagnostics.heap_size)
+    assert is_integer(diagnostics.total_heap_size)
+    assert diagnostics.total_heap_size >= diagnostics.heap_size
+    assert is_integer(diagnostics.stack_size)
+    assert is_integer(diagnostics.minor_gcs)
+    assert is_integer(diagnostics.fullsweep_after)
+
+    refute Map.has_key?(diagnostics, :dictionary)
+    refute Map.has_key?(diagnostics, :messages)
+    refute Map.has_key?(diagnostics, :stacktrace)
+  end
+
   defp relation_process do
     spawn(fn -> relation_loop() end)
   end

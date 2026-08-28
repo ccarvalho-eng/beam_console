@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add bounded scheduling, heap, and garbage-collection diagnostics to the process inspector.
+- Make process group leaders selectable when they are present in the latest snapshot.
+
 ## 0.4.0 - 2026-08-27
 
 - Add restart-safe operator recording control shared by the collector and lifecycle recorder.

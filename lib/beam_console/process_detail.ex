@@ -7,6 +7,7 @@ defmodule BeamConsole.ProcessDetail do
   """
 
   alias BeamConsole.ProcessRelation
+  alias BeamConsole.ProcessDetail.Diagnostics
 
   @enforce_keys [:id, :pid_text, :label]
   defstruct [
@@ -22,6 +23,7 @@ defmodule BeamConsole.ProcessDetail do
     :message_queue_len,
     :status,
     :last_seen_at,
+    :diagnostics,
     links: [],
     monitors: [],
     monitored_by: [],
@@ -48,6 +50,7 @@ defmodule BeamConsole.ProcessDetail do
           message_queue_len: non_neg_integer() | nil,
           status: atom() | nil,
           last_seen_at: DateTime.t() | nil,
+          diagnostics: Diagnostics.t() | nil,
           links: [ProcessRelation.t()],
           monitors: [ProcessRelation.t()],
           monitored_by: [ProcessRelation.t()],
