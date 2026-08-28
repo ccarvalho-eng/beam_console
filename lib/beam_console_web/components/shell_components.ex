@@ -1,6 +1,6 @@
 if Code.ensure_loaded?(Phoenix.Component) do
   defmodule BeamConsoleWeb.Components.ShellComponents do
-    @moduledoc "Renders the BeamConsole header, navigation, and browser-owned theme controls."
+    @moduledoc "Renders the BeamConsole header, navigation, and browser-owned display controls."
 
     use Phoenix.Component
 
@@ -14,7 +14,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:recording_control_available?, :boolean, required: true)
     attr(:refresh_pending?, :boolean, default: false)
 
-    @doc "Renders the dashboard header with tabs, recording controls, refresh, and theme selection."
+    @doc "Renders the dashboard header with tabs, recording, refresh, focus, and theme controls."
     @spec header(map()) :: Phoenix.LiveView.Rendered.t()
     def header(assigns) do
       ~H"""
@@ -146,6 +146,21 @@ if Code.ensure_loaded?(Phoenix.Component) do
               aria-hidden="true"
             >
               <path d="m8 5 11 7-11 7V5Z" />
+            </svg>
+          </button>
+
+          <button
+            id="beam-console-focus-mode"
+            type="button"
+            class="beam-console-icon-button"
+            data-beam-console-focus-toggle
+            aria-label="Enter focus mode"
+            aria-keyshortcuts="F"
+            aria-pressed="false"
+            data-tooltip="Focus mode (F)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5" />
             </svg>
           </button>
 

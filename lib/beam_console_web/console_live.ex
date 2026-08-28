@@ -255,7 +255,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     def render(assigns) do
       ~H"""
       <div id="beam-console" class="beam-console-shell" phx-hook="BeamConsoleTheme">
-        <div id="beam-console-panels" class="beam-console-frame" phx-hook="BeamConsolePanels">
+        <div
+          id="beam-console-panels"
+          class="beam-console-frame"
+          phx-hook="BeamConsolePanels"
+          data-beam-console-focus-key={"beam-console:focus:#{@prefix}"}
+          data-beam-console-has-selection={if(is_nil(@selected), do: "false", else: "true")}
+        >
           <.header
             page_title={@page_title}
             status_label={@status_label}
@@ -267,6 +273,43 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             recording_control_available?={@recording_control_available?}
             refresh_pending?={@graph_refresh_pending?}
           />
+
+          <span
+            id="beam-console-focus-announcement"
+            class="beam-console-visually-hidden"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ></span>
+          <button
+            id="beam-console-focus-inspector"
+            type="button"
+            class="beam-console-icon-button beam-console-focus-inspector"
+            data-beam-console-panel-toggle="inspector"
+            aria-controls="beam-console-inspector-panel"
+            aria-expanded="false"
+            aria-label="Open inspector"
+            data-tooltip="Inspector"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="6" />
+              <path d="m16 16 4 4M11 8v6M8 11h6" />
+            </svg>
+          </button>
+          <button
+            id="beam-console-focus-exit"
+            type="button"
+            class="beam-console-icon-button beam-console-focus-exit"
+            data-beam-console-focus-toggle
+            aria-label="Exit focus mode"
+            aria-keyshortcuts="Escape"
+            aria-pressed="false"
+            data-tooltip="Exit focus mode (Esc)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" />
+            </svg>
+          </button>
 
           <.runtime_tree
             nodes={@nodes}

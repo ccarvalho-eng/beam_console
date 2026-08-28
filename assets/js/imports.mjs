@@ -5,13 +5,16 @@ import {
   chartAriaLabel,
   chartDomain,
   chartHeadline,
+  focusShortcutAction,
   formatChartValue,
   graphUpdateMode,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
+  readStoredBoolean,
   readStoredTheme,
   writeStoredBranchStates,
+  writeStoredBoolean,
   writeStoredTheme,
   revisionDecision
 } from "../support/__SUPPORT_DIGEST__";

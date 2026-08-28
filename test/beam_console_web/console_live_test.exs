@@ -49,11 +49,27 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     assert has_element?(view, "#beam-console-tab-process_map[aria-current='page']")
     assert has_element?(view, "#beam-console-tab-lifecycle")
     assert has_element?(view, "#beam-console-recorder-control")
+    assert has_element?(view, "#beam-console-focus-mode[aria-pressed='false'] svg")
     assert has_element?(view, "#beam-console-refresh[aria-label='Refresh runtime sample'] svg")
 
     assert has_element?(
              view,
-             "#beam-console-refresh + #beam-console-theme-switcher button[data-beam-console-theme='system']"
+             "#beam-console-focus-mode + #beam-console-refresh + #beam-console-theme-switcher button[data-beam-console-theme='system']"
+           )
+
+    assert has_element?(
+             view,
+             "#beam-console-focus-exit[data-beam-console-focus-toggle][aria-pressed='false']"
+           )
+
+    assert has_element?(
+             view,
+             "#beam-console-focus-inspector[data-beam-console-panel-toggle='inspector'][aria-expanded='false']"
+           )
+
+    assert has_element?(
+             view,
+             "#beam-console-panels[data-beam-console-focus-key='beam-console:focus:/beam'][data-beam-console-has-selection='false']"
            )
 
     assert has_element?(
@@ -78,6 +94,21 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     refute render(view) =~ "Runtime sampling is live · sample"
     assert has_element?(view, "button[phx-value-edges='supervision'][aria-pressed='true']")
     assert has_element?(view, "button[phx-value-edges='relationships'][aria-pressed='false']")
+  end
+
+  test "keeps the focus preference scope stable across patched dashboard tabs" do
+    {:ok, view, _html} = live(build_conn(), "/beam")
+
+    view
+    |> element("#beam-console-tab-activity")
+    |> render_click()
+
+    assert_patch(view, "/beam/activity")
+
+    assert has_element?(
+             view,
+             "#beam-console-panels[data-beam-console-focus-key='beam-console:focus:/beam']"
+           )
   end
 
   test "updates process-map labels with the selected connection mode" do
@@ -111,6 +142,7 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
       live(build_conn(), "/beam?" <> URI.encode_query(%{"entity" => process.id}))
 
     assert has_element?(view, "#processes-#{process.id}[aria-pressed='true']")
+    assert has_element?(view, "#beam-console-panels[data-beam-console-has-selection='true']")
     send(view.pid, {:beam_console_snapshot, snapshot.sequence})
     assert has_element?(view, "#processes-#{process.id}[aria-pressed='true']")
     assert has_element?(view, "#beam-console-tab-process_map[aria-current='page']")

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.1 - 2026-08-28
+
+- Add a mount-scoped Focus mode that removes surrounding chrome without changing sampling or recording.
+- Add pre-paint persistence, cross-tab synchronization, accessible controls, and `F`/`Escape` shortcuts.
+
 ## 0.5.0 - 2026-08-27
 
 - Add bounded scheduling, heap, and garbage-collection diagnostics to the process inspector.

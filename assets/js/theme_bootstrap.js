@@ -12,4 +12,14 @@
   const effective = theme === "system" ? (query.matches ? "dark" : "light") : theme;
   document.documentElement.dataset.theme = effective;
   document.documentElement.dataset.themeSource = theme === "system" ? "system" : "user";
+
+  let focus = false;
+  try {
+    const prefix = document.currentScript?.dataset.consolePrefix || window.location.pathname;
+    const key = `beam-console:focus:${prefix}`;
+    focus = window.localStorage.getItem(key) === "true";
+  } catch (_error) {
+    // Focus mode remains off when storage is restricted.
+  }
+  document.documentElement.dataset.beamConsoleFocus = String(focus);
 })();

@@ -30,7 +30,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
           <.live_title default="Process Map" prefix="BeamConsole · ">
             {@page_title}
           </.live_title>
-          <script src={@theme_path}>
+          <script src={@theme_path} data-console-prefix={@prefix}>
           </script>
           <link rel="stylesheet" href={@css_path} />
           <script
