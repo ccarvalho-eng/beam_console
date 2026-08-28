@@ -18,6 +18,39 @@ export const writeStoredTheme = (storageOwner, key, theme) => {
   }
 };
 
+export const readStoredBoolean = (storageOwner, key) => {
+  try {
+    return storageOwner.localStorage.getItem(key) === "true";
+  } catch (_error) {
+    return false;
+  }
+};
+
+export const writeStoredBoolean = (storageOwner, key, value) => {
+  try {
+    const storage = storageOwner.localStorage;
+    if (value) storage.setItem(key, "true");
+    else storage.removeItem(key);
+  } catch (_error) {
+    // Browser storage can be unavailable in restricted embedding contexts.
+  }
+};
+
+export const focusShortcutAction = (event, focusActive) => {
+  const interactive = event.target?.closest?.(
+    "a[href], button, input, textarea, select, [contenteditable='true'], [role='button']"
+  );
+
+  if (event.isComposing || event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
+    return null;
+  }
+
+  if (event.key === "Escape" && focusActive) return "exit";
+  if (interactive) return null;
+  if (event.key?.toLowerCase() === "f") return "toggle";
+  return null;
+};
+
 export const readStoredBranchStates = (storageOwner, key) => {
   try {
     const storage = storageOwner.localStorage;

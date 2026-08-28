@@ -9,13 +9,16 @@ import {
   chartAriaLabel,
   chartDomain,
   chartHeadline,
+  focusShortcutAction,
   formatChartValue,
   graphUpdateMode,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
+  readStoredBoolean,
   readStoredTheme,
   writeStoredBranchStates,
+  writeStoredBoolean,
   writeStoredTheme,
   revisionDecision
 } from "../js/support.mjs";
@@ -45,6 +48,44 @@ test("theme preference follows the Phoenix storage protocol", () => {
   assert.equal(readStoredTheme(storageOwner, "phx:theme", themes), null);
 });
 
+test("focus preference persists as a strict mount-scoped boolean", () => {
+  const localStorage = storage({});
+  const storageOwner = { localStorage };
+  const key = "beam-console:focus:/admin/beam";
+
+  assert.equal(readStoredBoolean(storageOwner, key), false);
+
+  writeStoredBoolean(storageOwner, key, true);
+  assert.equal(readStoredBoolean(storageOwner, key), true);
+
+  writeStoredBoolean(storageOwner, key, false);
+  assert.equal(readStoredBoolean(storageOwner, key), false);
+
+  localStorage.setItem(key, "unexpected");
+  assert.equal(readStoredBoolean(storageOwner, key), false);
+});
+
+test("focus shortcuts avoid interactive controls and modified keystrokes", () => {
+  const plainTarget = { closest: () => null };
+  const editableTarget = { closest: selector => selector.includes("input") ? {} : null };
+
+  assert.equal(focusShortcutAction({ key: "f", target: plainTarget }, false), "toggle");
+  assert.equal(focusShortcutAction({ key: "F", target: plainTarget }, true), "toggle");
+  assert.equal(focusShortcutAction({ key: "Escape", target: plainTarget }, true), "exit");
+  assert.equal(focusShortcutAction({ key: "Escape", target: editableTarget }, true), "exit");
+  assert.equal(focusShortcutAction({ key: "Escape", target: plainTarget }, false), null);
+  assert.equal(focusShortcutAction({ key: "f", target: editableTarget }, false), null);
+  assert.equal(
+    focusShortcutAction({ key: "f", target: editableTarget, isComposing: true }, false),
+    null
+  );
+  assert.equal(
+    focusShortcutAction({ key: "f", target: plainTarget, metaKey: true }, false),
+    null
+  );
+  assert.equal(focusShortcutAction({ key: "f", target: plainTarget, repeat: true }, false), null);
+});
+
 test("restricted storage getters cannot abort client startup", () => {
   const storageOwner = {
     get localStorage() {
@@ -53,8 +94,10 @@ test("restricted storage getters cannot abort client startup", () => {
   };
 
   assert.equal(readStoredTheme(storageOwner, "phx:theme", new Set(["dark"])), null);
+  assert.equal(readStoredBoolean(storageOwner, "beam-console:focus:/beam"), false);
   assert.deepEqual(readStoredBranchStates(storageOwner, "tree"), []);
   assert.doesNotThrow(() => writeStoredTheme(storageOwner, "phx:theme", "dark"));
+  assert.doesNotThrow(() => writeStoredBoolean(storageOwner, "beam-console:focus:/beam", true));
   assert.doesNotThrow(() => writeStoredBranchStates(storageOwner, "tree", new Map()));
 });
 
@@ -292,6 +335,70 @@ test("mobile panels restore focus when dismissed", () => {
   assert.equal(focused, true);
 });
 
+test("focus mode updates browser state without touching runtime controls", () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const localStorage = storage({});
+  let synced = false;
+  let resized = false;
+
+  globalThis.document = { documentElement: { dataset: {} } };
+  globalThis.window = { localStorage };
+
+  try {
+    const hook = {
+      ...BeamConsolePanels,
+      activePanel: null,
+      focusActive: false,
+      focusStorageKey: "beam-console:focus:/beam",
+      writeFocusPreference: active => {
+        writeStoredBoolean(window, "beam-console:focus:/beam", active);
+      },
+      syncFocusMode: () => { synced = true; },
+      scheduleWorkspaceResize: () => { resized = true; }
+    };
+
+    hook.setFocusMode(true, true, false);
+
+    assert.equal(hook.focusActive, true);
+    assert.equal(document.documentElement.dataset.beamConsoleFocus, "true");
+    assert.equal(localStorage.getItem(hook.focusStorageKey), "true");
+    assert.equal(synced, true);
+    assert.equal(resized, true);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  }
+});
+
+test("storage-driven focus changes recover focus only from hidden chrome", () => {
+  const headerControl = { closest: selector => selector.includes("beam-console-header") ? {} : null };
+  const workspaceControl = { closest: () => null };
+  const previousDocument = globalThis.document;
+
+  try {
+    const hook = {
+      ...BeamConsolePanels,
+      el: {
+        contains: element => [headerControl, workspaceControl].includes(element),
+        dataset: { beamConsoleHasSelection: "false" }
+      }
+    };
+
+    globalThis.document = { activeElement: headerControl };
+    assert.equal(hook.focusTransitionHidesActiveControl(true), true);
+
+    globalThis.document = { activeElement: workspaceControl };
+    assert.equal(hook.focusTransitionHidesActiveControl(true), false);
+
+    hook.activePanel = "inspector";
+    hook.el.dataset.beamConsoleHasSelection = "true";
+    assert.equal(hook.focusTransitionHidesActiveControl(true), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("mobile panels wrap keyboard focus inside the active drawer", () => {
   let firstFocused = false;
   const first = { closest: () => null, focus: () => { firstFocused = true; } };
@@ -366,4 +473,47 @@ test("header navigation keeps a fixed center column across tabs", async () => {
     /@media \(max-width: 1180px\)[\s\S]*?\.beam-console-header\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\)[\s\S]*?grid-template-rows:\s*auto auto/
   );
   assert.match(stylesheet, /\.beam-console-search-form\.is-placeholder\s*\{[\s\S]*?visibility:\s*hidden/);
+});
+
+test("focus mode removes chrome without changing the active workspace", async () => {
+  const stylesheet = await readFile(
+    new URL("../../priv/static/beam_console.css", import.meta.url),
+    "utf8"
+  );
+  const bootstrap = await readFile(
+    new URL("../../priv/static/beam_console_theme.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(bootstrap, /beam-console:focus:/);
+  assert.match(bootstrap, /document\.currentScript/);
+  assert.match(bootstrap, /dataset\.consolePrefix/);
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-header[\s\S]*?display:\s*none/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?data-beam-console-has-selection="false"[\s\S]*?\.beam-console-inspector[\s\S]*?display:\s*none/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-exit[\s\S]*?display:\s*grid/
+  );
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?data-beam-console-focus="true"[\s\S]*?\.beam-console-focus-inspector[\s\S]*?display:\s*grid/
+  );
+  assert.match(
+    stylesheet,
+    /data-beam-console-focus="true"[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) clamp\(280px, 32vw, 332px\)/
+  );
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?\.beam-console-main:not\(\.beam-console-tab-main\)[\s\S]*?grid-template-rows:\s*minmax\(0, 64dvh\) minmax\(0, 36dvh\)/
+  );
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?data-beam-console-focus="true"[\s\S]*?\.beam-console-graph\s*\{[\s\S]*?min-height:\s*0/
+  );
 });

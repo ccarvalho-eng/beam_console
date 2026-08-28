@@ -254,3 +254,134 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+:root[data-beam-console-focus="true"] .beam-console-shell {
+  height: 100dvh;
+  padding: 0;
+}
+
+:root[data-beam-console-focus="true"] .beam-console-frame {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  min-height: 640px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-beam-console-focus="true"] .beam-console-header,
+:root[data-beam-console-focus="true"] .beam-console-sidebar,
+:root[data-beam-console-focus="true"] .beam-console-runtime-summary,
+:root[data-beam-console-focus="true"] .beam-console-recorder-summary {
+  display: none;
+}
+
+:root[data-beam-console-focus="true"] .beam-console-main {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+:root[data-beam-console-focus="true"]
+  .beam-console-frame[data-beam-console-has-selection="false"]
+  .beam-console-inspector {
+  display: none;
+}
+
+:root[data-beam-console-focus="true"]
+  .beam-console-frame[data-beam-console-has-selection="true"] {
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 32vw, 332px);
+}
+
+:root[data-beam-console-focus="true"]
+  .beam-console-frame[data-beam-console-has-selection="true"]
+  .beam-console-inspector {
+  display: block;
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+  border-top: 0;
+  border-left: 1px solid var(--bc-border);
+}
+
+:root[data-beam-console-focus="true"] .beam-console-focus-exit {
+  position: absolute;
+  z-index: 30;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  background: color-mix(in srgb, var(--bc-surface), transparent 4%);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--bc-text), transparent 88%);
+}
+
+:root[data-beam-console-focus="true"]
+  .beam-console-frame[data-beam-console-has-selection="true"]
+  .beam-console-focus-exit {
+  right: calc(clamp(280px, 32vw, 332px) + 12px);
+}
+
+@media (max-width: 760px) {
+  :root[data-beam-console-focus="true"] .beam-console-frame {
+    min-height: 100dvh;
+  }
+
+  :root[data-beam-console-focus="true"] .beam-console-main,
+  :root[data-beam-console-focus="true"] .beam-console-tab-main {
+    height: 100dvh;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  :root[data-beam-console-focus="true"] .beam-console-main:not(.beam-console-tab-main) {
+    grid-template-rows: minmax(0, 64dvh) minmax(0, 36dvh);
+  }
+
+  :root[data-beam-console-focus="true"] .beam-console-graph-stage {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  :root[data-beam-console-focus="true"] .beam-console-graph {
+    min-height: 0;
+  }
+
+  :root[data-beam-console-focus="true"]
+    .beam-console-frame[data-beam-console-has-selection="true"] {
+    display: flex;
+  }
+
+  :root[data-beam-console-focus="true"]
+    .beam-console-frame[data-beam-console-has-selection="true"]
+    .beam-console-inspector {
+    position: fixed;
+    display: block;
+    border-left: 1px solid var(--bc-border);
+    transform: translateX(105%);
+  }
+
+  :root[data-beam-console-focus="true"]
+    .beam-console-frame[data-beam-console-has-selection="true"]
+    .beam-console-inspector.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  :root[data-beam-console-focus="true"]
+    .beam-console-frame[data-beam-console-has-selection="true"]
+    .beam-console-focus-exit {
+    right: 12px;
+  }
+
+  :root[data-beam-console-focus="true"]
+    .beam-console-frame[data-beam-console-has-selection="true"]
+    .beam-console-focus-inspector {
+    position: absolute;
+    z-index: 30;
+    top: 12px;
+    right: 56px;
+    display: grid;
+    background: color-mix(in srgb, var(--bc-surface), transparent 4%);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--bc-text), transparent 88%);
+  }
+}

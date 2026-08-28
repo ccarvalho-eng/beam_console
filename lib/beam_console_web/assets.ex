@@ -105,7 +105,7 @@ if Code.ensure_loaded?(Phoenix.Controller) and Code.ensure_loaded?(Phoenix.LiveV
       @support_digest
     end
 
-    @doc "Returns the digest for BeamConsole's first-paint theme bootstrap."
+    @doc "Returns the digest for BeamConsole's first-paint display bootstrap."
     @spec theme_digest() :: String.t()
     def theme_digest do
       @theme_digest
@@ -171,7 +171,7 @@ if Code.ensure_loaded?(Phoenix.Controller) and Code.ensure_loaded?(Phoenix.LiveV
       send_resp(conn, 404, "Not Found")
     end
 
-    @doc "Serves BeamConsole's first-paint theme bootstrap when its digest matches."
+    @doc "Serves BeamConsole's first-paint display bootstrap when its digest matches."
     @spec theme(Plug.Conn.t(), map()) :: Plug.Conn.t()
     def theme(%{params: %{"digest" => @theme_digest}} = conn, _params) do
       send_asset(conn, "text/javascript", @theme)
