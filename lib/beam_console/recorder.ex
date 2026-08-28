@@ -17,13 +17,13 @@ defmodule BeamConsole.Recorder do
     LifecycleRecorder.status(server)
   end
 
-  @doc "Pauses process recording while preserving bounded in-memory history."
+  @doc "Pauses process recording through its configured authority while preserving history."
   @spec pause(GenServer.server()) :: Status.t()
   def pause(server \\ LifecycleRecorder) do
     LifecycleRecorder.pause(server)
   end
 
-  @doc "Resumes process recording when the configured demand mode allows it."
+  @doc "Resumes process recording through its configured authority when demand allows it."
   @spec resume(GenServer.server()) :: Status.t()
   def resume(server \\ LifecycleRecorder) do
     LifecycleRecorder.resume(server)

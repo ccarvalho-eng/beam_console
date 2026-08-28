@@ -13,6 +13,8 @@ defmodule BeamConsole.Lifecycle.Recorder.State do
 
   defstruct config: nil,
             history: nil,
+            recording_control: nil,
+            recording_revision: 0,
             refresh_requester: nil,
             refresh_timeout: 250,
             refresh_request: nil,
@@ -45,12 +47,15 @@ defmodule BeamConsole.Lifecycle.Recorder.State do
           monitor_ref: reference(),
           timeout_ref: reference(),
           outcome: :ok | :error | nil,
-          timed_out?: boolean()
+          timed_out?: boolean(),
+          cancelled?: boolean()
         }
 
   @type t :: %__MODULE__{
           config: Config.t(),
           history: History.t(),
+          recording_control: GenServer.server() | nil,
+          recording_revision: non_neg_integer(),
           refresh_requester: refresh_requester(),
           refresh_timeout: pos_integer(),
           refresh_request: refresh_request() | nil,

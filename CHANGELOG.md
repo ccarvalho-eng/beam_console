@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+## 0.4.0 - 2026-08-27
+
+- Add restart-safe operator recording control shared by the collector and lifecycle recorder.
+- Stop opt-in always-on background scans after recording is paused and the final viewer disconnects.
+- Keep connected dashboards live while lifecycle recording is paused.
+- Cancel deferred lifecycle reconciliation on pause without terminating an in-flight runtime scan.
+
 ## 0.3.0 - 2026-08-27
 
 - Keep always-on lifecycle recording active across zero-viewer and runtime-service restart windows.

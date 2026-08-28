@@ -6,6 +6,7 @@ defmodule BeamConsole.CollectorTest do
   alias BeamConsole.Lifecycle.Observation
   alias BeamConsole.Lifecycle.Recorder, as: LifecycleRecorder
   alias BeamConsole.Recorder.Config, as: RecorderConfig
+  alias BeamConsole.Recording.Control, as: RecordingControl
   alias BeamConsole.Snapshot
 
   defmodule FakeRuntime do
@@ -243,7 +244,7 @@ defmodule BeamConsole.CollectorTest do
       )
 
     assert {:ok, nil} = Collector.subscribe(collector)
-    assert_receive {:scan_started, 1, scanner}
+    assert_receive {:scan_started, 1, scanner}, 1_000
     send(scanner, :release)
 
     assert_receive {:"$gen_cast", {:observe, frame, [], _options}}
@@ -370,6 +371,174 @@ defmodule BeamConsole.CollectorTest do
     send(replacement_scanner, :release)
     assert_receive {:"$gen_cast", :activate}
     assert_receive {:"$gen_cast", {:observe, _frame, [], _options}}
+  end
+
+  test "a paused always-on collector settles one in-flight scan and stops without viewers" do
+    control = start_recording_control()
+    name = Module.concat(__MODULE__, "PausedAlwaysCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           lifecycle_recorder: self(),
+           recording_control: control,
+           always_record?: true,
+           interval: 20,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert_receive {:scan_started, 1, scanner}
+    RecordingControl.pause(control)
+    assert eventually(fn -> :sys.get_state(collector).recording_paused? end)
+
+    send(scanner, :release)
+    refute_receive {:scan_started, 2, _scanner}, 100
+
+    assert :ok = Collector.request_reconciliation(collector)
+    refute_receive {:scan_started, 2, _scanner}, 100
+
+    assert :ok = Collector.request_refresh(collector)
+    assert_receive {:scan_started, 2, manual_scanner}
+    send(manual_scanner, :release)
+    refute_receive {:scan_started, 3, _scanner}, 100
+
+    RecordingControl.resume(control)
+    assert_receive {:scan_started, 3, resumed_scanner}
+    send(resumed_scanner, :release)
+  end
+
+  test "a connected viewer keeps live sampling while recording is paused" do
+    control = start_recording_control()
+    name = Module.concat(__MODULE__, "PausedViewerCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           lifecycle_recorder: self(),
+           recording_control: control,
+           always_record?: true,
+           interval: 20,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert {:ok, nil} = Collector.subscribe(collector)
+    assert_receive {:scan_started, 1, scanner}
+    RecordingControl.pause(control)
+    assert eventually(fn -> :sys.get_state(collector).recording_paused? end)
+
+    send(scanner, :release)
+    assert_receive {:beam_console_snapshot, 1}
+    assert :ok = Collector.acknowledge(1, collector)
+    assert_receive {:scan_started, 2, next_scanner}
+    send(next_scanner, :release)
+    assert_receive {:beam_console_snapshot, 2}
+    assert :ok = Collector.unsubscribe(collector)
+    refute_receive {:scan_started, 3, _scanner}, 100
+  end
+
+  test "a failed in-flight scan cannot revive paused zero-viewer sampling" do
+    control = start_recording_control()
+
+    name =
+      Module.concat(__MODULE__, "PausedFailureCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           recording_control: control,
+           always_record?: true,
+           interval: 20,
+           scan_timeout: 2_000,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert_receive {:scan_started, 1, scanner}
+    RecordingControl.pause(control)
+    assert eventually(fn -> :sys.get_state(collector).recording_paused? end)
+    send(scanner, {:release, {:error, :fixture_failure}})
+
+    assert eventually_after(fn -> not Collector.status(collector).scanning? end)
+    refute_receive {:scan_started, 2, _scanner}, 100
+  end
+
+  test "a timed-out in-flight scan cannot revive paused zero-viewer sampling" do
+    control = start_recording_control()
+
+    name =
+      Module.concat(__MODULE__, "PausedTimeoutCollector#{System.unique_integer([:positive])}")
+
+    collector =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Collector,
+           name: name,
+           runtime: FakeRuntime,
+           runtime_options: [owner: self()],
+           recording_control: control,
+           always_record?: true,
+           interval: 20,
+           scan_timeout: 20,
+           task_supervisor: BeamConsole.TaskSupervisor},
+          id: name
+        )
+      )
+
+    assert_receive {:scan_started, 1, _scanner}
+    RecordingControl.pause(control)
+    assert eventually(fn -> :sys.get_state(collector).recording_paused? end)
+
+    assert eventually_after(fn -> not Collector.status(collector).scanning? end)
+    refute_receive {:scan_started, 2, _scanner}, 100
+  end
+
+  test "a paused control prevents restarted always-on collectors from sampling" do
+    control = start_recording_control()
+    RecordingControl.pause(control)
+
+    name =
+      Module.concat(__MODULE__, "RestartPausedCollector#{System.unique_integer([:positive])}")
+
+    collector_spec =
+      Supervisor.child_spec(
+        {Collector,
+         name: name,
+         runtime: FakeRuntime,
+         runtime_options: [owner: self()],
+         lifecycle_recorder: self(),
+         recording_control: control,
+         always_record?: true,
+         interval: 20,
+         scan_timeout: 2_000,
+         task_supervisor: BeamConsole.TaskSupervisor},
+        id: name
+      )
+
+    _collector = start_supervised!(collector_spec)
+    refute_receive {:scan_started, 1, _scanner}, 100
+
+    assert :ok = stop_supervised(name)
+    _replacement = start_supervised!(collector_spec)
+    refute_receive {:scan_started, 1, _scanner}, 100
   end
 
   test "reactivates a restarted recorder while a viewer remains subscribed" do
@@ -664,7 +833,7 @@ defmodule BeamConsole.CollectorTest do
         Collector.refresh(collector)
       end
 
-      assert_receive {:probe_scan_started, 1}
+      assert_receive {:probe_scan_started, 1}, 1_000
 
       if attempt == 1 do
         assert_receive :blocking_supervisor_called
@@ -726,6 +895,12 @@ defmodule BeamConsole.CollectorTest do
     end
   end
 
+  defp start_recording_control do
+    name = Module.concat(__MODULE__, "RecordingControl#{System.unique_integer([:positive])}")
+
+    start_supervised!(Supervisor.child_spec({RecordingControl, name: name}, id: name))
+  end
+
   defp controlled_subscriber_loop(collector, owner) do
     receive do
       {:beam_console_snapshot, sequence} ->
@@ -753,6 +928,21 @@ defmodule BeamConsole.CollectorTest do
   end
 
   defp eventually(_fun, 0) do
+    false
+  end
+
+  defp eventually_after(fun, attempts \\ 100)
+
+  defp eventually_after(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(1)
+      eventually_after(fun, attempts - 1)
+    end
+  end
+
+  defp eventually_after(_fun, 0) do
     false
   end
 end
