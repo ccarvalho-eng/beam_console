@@ -46,6 +46,7 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
       sampled_at_ms: 1,
       monotonic_ms: 1,
       process_count: 42,
+      inspected_process_count: 30,
       supervisor_count: 5,
       ets_count: 7,
       atom_count: 100,
@@ -56,6 +57,7 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
     result = RuntimePresenter.present(%Query{items: [frame(1, runtime: runtime)]}, 1)
 
     assert result.summary.process_count == 42
+    assert result.summary.inspected_process_count == 30
     assert result.summary.atom_count == 100
     assert result.summary.atom_limit == 1_000
     assert result.summary.atom_utilization == 10.0
@@ -70,6 +72,9 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
 
     assert atom_chart.min == 0
     assert atom_chart.max == 100
+
+    count_chart = Enum.find(result.charts, &(&1.id == "runtime-counts"))
+    assert Enum.any?(count_chart.series, &(&1.key == :inspected_process_count))
   end
 
   test "empty runtime presentation exposes the complete render contract" do
@@ -78,6 +83,7 @@ defmodule BeamConsoleWeb.Console.StatsPresenterTest do
     assert result.summary.collector_partial? == false
     assert result.summary.omitted == 5
     assert result.summary.process_count == 0
+    assert result.summary.inspected_process_count == 0
     assert result.summary.atom_count == nil
     assert result.summary.atom_limit == nil
     assert result.summary.atom_utilization == nil

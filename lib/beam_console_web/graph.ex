@@ -35,7 +35,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       selected_id = Keyword.get(options, :selected_id)
       focus_id = Keyword.get(options, :focus_id)
       edge_preset = Keyword.get(options, :edge_preset, "supervision")
-      selected_detail = Keyword.get(options, :selected_detail)
+      selected_detail = live_process_detail(snapshot, Keyword.get(options, :selected_detail))
       local_node = Map.fetch!(snapshot.nodes, snapshot.local_node_id)
       focus_application = focus_application(snapshot, selected_id, focus_id)
       focused_processes = focused_processes(snapshot, focus_application, selected_id)
@@ -158,11 +158,15 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp relationship_edges(%{id: source_id} = detail, included_ids, "relationships") do
-      (link_edges(source_id, detail.links, included_ids) ++
-         monitor_edges(source_id, detail.monitors, included_ids) ++
-         monitored_by_edges(source_id, Map.get(detail, :monitored_by, []), included_ids))
-      |> Enum.uniq_by(& &1.data.id)
-      |> Enum.sort_by(& &1.data.id)
+      if MapSet.member?(included_ids, source_id) do
+        (link_edges(source_id, detail.links, included_ids) ++
+           monitor_edges(source_id, detail.monitors, included_ids) ++
+           monitored_by_edges(source_id, Map.get(detail, :monitored_by, []), included_ids))
+        |> Enum.uniq_by(& &1.data.id)
+        |> Enum.sort_by(& &1.data.id)
+      else
+        []
+      end
     end
 
     defp relationship_edges(_processes, _included_ids, _preset) do
@@ -224,6 +228,18 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp relationship_processes(_snapshot, _detail, _preset, _selected_id) do
       []
+    end
+
+    defp live_process_detail(_snapshot, nil) do
+      nil
+    end
+
+    defp live_process_detail(snapshot, %{id: id} = detail) do
+      if Map.has_key?(snapshot.processes, id), do: detail
+    end
+
+    defp live_process_detail(_snapshot, _detail) do
+      nil
     end
 
     defp omitted_relationship_nodes(_snapshot, nil, "relationships") do

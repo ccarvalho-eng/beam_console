@@ -63,6 +63,15 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
            )
 
     assert has_element?(view, "#beam-console-detail-empty")
+
+    assert has_element?(
+             view,
+             "#beam-console-runtime-panel [aria-label='Close runtime hierarchy']"
+           )
+
+    assert has_element?(view, "#beam-console-inspector-panel [aria-label='Close inspector']")
+    assert has_element?(view, "#beam-console-status-announcement", "Runtime sampling is live")
+    refute render(view) =~ "Runtime sampling is live · sample"
     assert has_element?(view, "button[phx-value-edges='supervision'][aria-pressed='true']")
     assert has_element?(view, "button[phx-value-edges='relationships'][aria-pressed='false']")
   end
@@ -85,6 +94,22 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     send(view.pid, {:beam_console_snapshot, snapshot.sequence})
 
     assert_push_event(view, "beam_console_graph", %{sequence: _sequence})
+  end
+
+  test "preserves selected process rows across ordinary sample updates", %{snapshot: snapshot} do
+    process =
+      snapshot
+      |> BeamConsoleWeb.Console.DashboardPresenter.process_result("", 150)
+      |> Map.fetch!(:items)
+      |> List.first()
+
+    {:ok, view, _html} =
+      live(build_conn(), "/beam?" <> URI.encode_query(%{"entity" => process.id}))
+
+    assert has_element?(view, "#processes-#{process.id}[aria-pressed='true']")
+    send(view.pid, {:beam_console_snapshot, snapshot.sequence})
+    assert has_element?(view, "#processes-#{process.id}[aria-pressed='true']")
+    assert has_element?(view, "#beam-console-tab-process_map[aria-current='page']")
   end
 
   test "loads an allowlisted process detail from a URL selection", %{snapshot: snapshot} do
@@ -247,6 +272,20 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
     assert has_element?(view, "[id$='application-category-dependencies']")
     assert has_element?(view, "[id$='application-category-otp']")
     assert has_element?(view, "#beam-console-application-detail")
+  end
+
+  test "keeps folder disclosure separate from node inspection", %{snapshot: snapshot} do
+    runtime_node = snapshot.nodes |> Map.values() |> List.first()
+    {:ok, view, _html} = live(build_conn(), "/beam")
+
+    assert has_element?(view, "#disclose-#{runtime_node.id}")
+    refute has_element?(view, "#disclose-#{runtime_node.id}[phx-click]")
+    assert has_element?(view, ".beam-console-node-row > #select-#{runtime_node.id}")
+
+    assert has_element?(
+             view,
+             "#select-#{runtime_node.id}[phx-click='select_entity'][aria-pressed='false']"
+           )
   end
 
   defp contains_chart_points?(value) when is_struct(value) do

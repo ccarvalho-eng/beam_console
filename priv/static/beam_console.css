@@ -406,6 +406,21 @@
   transform: translateY(0);
 }
 
+.beam-console-panel-toggle,
+.beam-console-panel-backdrop {
+  display: none;
+}
+.beam-console-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
 .beam-console-sidebar,
 .beam-console-inspector {
   min-height: 0;
@@ -433,6 +448,40 @@
 .beam-console-heading-line {
   justify-content: space-between;
   gap: 10px;
+}
+
+.beam-console-panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.beam-console-panel-close {
+  display: none;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface);
+  color: var(--bc-muted);
+  cursor: pointer;
+}
+
+.beam-console-panel-close:hover,
+.beam-console-panel-close:focus-visible {
+  border-color: var(--bc-border-strong);
+  color: var(--bc-text);
+}
+
+.beam-console-panel-close svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-width: 1.75;
 }
 
 .beam-console-panel-heading h2 {
@@ -472,6 +521,49 @@
 
 .beam-console-tree-branch > summary::-webkit-details-marker {
   display: none;
+}
+
+.beam-console-node-row {
+  position: relative;
+}
+
+.beam-console-node-branch {
+  width: 100%;
+}
+
+.beam-console-node-branch > summary {
+  padding-right: 42px;
+}
+
+.beam-console-node-select {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bc-muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.beam-console-node-select:hover,
+.beam-console-node-select:focus-visible {
+  border-color: var(--bc-border-strong);
+  background: var(--bc-surface);
+  color: var(--bc-text);
+}
+
+.beam-console-node-select.is-selected {
+  border-color: var(--bc-accent-border);
+  background: var(--bc-accent-soft);
+  color: var(--bc-accent);
 }
 
 .beam-console-tree-caret {
@@ -1374,6 +1466,14 @@
     width: 100%;
   }
 
+  .beam-console-panel-toggle {
+    display: inline-flex;
+  }
+
+  .beam-console-panel-close {
+    display: inline-flex;
+  }
+
   .beam-console-brand {
     flex: 0 0 auto;
   }
@@ -1402,9 +1502,16 @@
   }
 
   .beam-console-sidebar {
-    max-height: 230px;
-    border-right: 0;
-    border-bottom: 1px solid var(--bc-border);
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(88vw, 360px);
+    border-right: 1px solid var(--bc-border);
+    box-shadow: 18px 0 42px rgb(15 23 42 / 22%);
+    transform: translateX(-105%);
+    transition: transform 160ms ease;
   }
 
   .beam-console-main {
@@ -1450,7 +1557,36 @@
   }
 
   .beam-console-inspector {
-    min-height: 340px;
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(90vw, 390px);
+    min-height: 0;
+    border-top: 0;
+    border-left: 1px solid var(--bc-border);
+    box-shadow: -18px 0 42px rgb(15 23 42 / 22%);
+    transform: translateX(105%);
+    transition: transform 160ms ease;
+  }
+
+  .beam-console-sidebar.is-mobile-open,
+  .beam-console-inspector.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .beam-console-panel-backdrop {
+    position: fixed;
+    z-index: 35;
+    inset: 0;
+    border: 0;
+    background: rgb(15 23 42 / 42%);
+    cursor: default;
+  }
+
+  .beam-console-frame.has-mobile-panel .beam-console-panel-backdrop {
+    display: block;
   }
 
   .beam-console-recorder-summary {

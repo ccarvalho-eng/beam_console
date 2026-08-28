@@ -6,6 +6,7 @@ import {
   chartDomain,
   chartHeadline,
   formatChartValue,
+  graphUpdateMode,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,

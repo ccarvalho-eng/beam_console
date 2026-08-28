@@ -11,18 +11,38 @@ if Code.ensure_loaded?(Phoenix.Component) do
     @spec inspector(map()) :: Phoenix.LiveView.Rendered.t()
     def inspector(assigns) do
       ~H"""
-      <aside class="beam-console-inspector" aria-label="Selected entity details">
+      <aside
+        id="beam-console-inspector-panel"
+        class="beam-console-inspector"
+        data-beam-console-panel="inspector"
+        aria-label="Selected entity details"
+        tabindex="-1"
+      >
         <div class="beam-console-panel-heading">
           <div class="beam-console-heading-line">
             <h2>Inspector</h2>
-            <span class="beam-console-heading-count">read only</span>
+            <div class="beam-console-panel-heading-actions">
+              <span class="beam-console-heading-count">read only</span>
+              <button
+                type="button"
+                class="beam-console-panel-close"
+                data-beam-console-panel-dismiss
+                aria-label="Close inspector"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m7 7 10 10M17 7 7 17" />
+                </svg>
+              </button>
+            </div>
           </div>
           <p>Allowlisted runtime metadata</p>
         </div>
 
         <%= case @selected do %>
           <% %{kind: :process} -> %>
-            <.process_detail selected={@selected} detail={@detail} />
+            <.process_detail selected={@selected} detail={@detail} vanished?={false} />
+          <% %{kind: :vanished} -> %>
+            <.process_detail selected={@selected} detail={@detail} vanished?={true} />
           <% %{kind: :application} -> %>
             <.application_detail selected={@selected} />
           <% %{kind: :node} -> %>
@@ -38,18 +58,25 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
     attr(:selected, :map, required: true)
     attr(:detail, :any, default: nil)
+    attr(:vanished?, :boolean, default: false)
 
     defp process_detail(assigns) do
       ~H"""
       <%= if @detail do %>
         <div id="beam-console-detail" class="beam-console-detail">
+          <div :if={@vanished?} class="beam-console-warning" role="status">
+            This process vanished after sample {@selected.last_seen_sequence}. Values below are the
+            last allowlisted detail retained by this page.
+          </div>
           <div class="beam-console-detail-heading">
             <div>
               <p class="beam-console-kicker">Process</p>
               <h3>{@detail.label}</h3>
               <p class="beam-console-detail-pid">{@detail.pid_text}</p>
             </div>
-            <span class="beam-console-detail-status">{@detail.status || "unknown"}</span>
+            <span class="beam-console-detail-status">
+              {if(@vanished?, do: "vanished", else: @detail.status || "unknown")}
+            </span>
           </div>
 
           <div class="beam-console-metrics">

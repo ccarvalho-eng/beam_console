@@ -104,6 +104,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
               ]}
               phx-click="select_entity"
               phx-value-id={process.id}
+              aria-pressed={if(@selected_id == process.id, do: "true", else: "false")}
             >
               <span class="beam-console-process-label"><i aria-hidden="true"></i>{process.label}</span>
               <span class="beam-console-process-meta">{format_bytes(process.memory)}</span>

@@ -68,7 +68,7 @@ export const formatChartValue = (value, unit) => {
   return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1);
 };
 
-export const chartDomain = (values, minimum, maximum) => {
+export const chartDomain = (values, minimum, maximum, previousDomain = null) => {
   let lower = Number.isFinite(minimum) ? minimum : Math.min(...values);
   let upper = Number.isFinite(maximum) ? maximum : Math.max(...values);
 
@@ -78,7 +78,31 @@ export const chartDomain = (values, minimum, maximum) => {
     upper += padding;
   }
 
+  if (Array.isArray(previousDomain) && previousDomain.length === 2) {
+    const fixedMinimum = Number.isFinite(minimum);
+    const fixedMaximum = Number.isFinite(maximum);
+    const expands = lower < previousDomain[0] || upper > previousDomain[1];
+    const previousSpan = previousDomain[1] - previousDomain[0];
+    const currentSpan = upper - lower;
+    const contracts = currentSpan <= previousSpan * 0.5;
+
+    if (!expands && !contracts) return previousDomain;
+
+    if (!expands && contracts) {
+      const padding = Math.max(currentSpan * 0.1, 1);
+      if (!fixedMinimum) lower -= padding;
+      if (!fixedMaximum) upper += padding;
+    } else {
+      if (!fixedMinimum) lower = Math.min(lower, previousDomain[0]);
+      if (!fixedMaximum) upper = Math.max(upper, previousDomain[1]);
+    }
+  }
+
   return [lower, upper];
+};
+
+export const graphUpdateMode = (sequence, focusChanged) => {
+  return sequence > 0 && !focusChanged ? "patch" : "layout";
 };
 
 export const chartAriaLabel = title => `${title || "History"} history chart`;
@@ -100,7 +124,8 @@ export const anchoredNodeOffset = index => ({
 });
 
 export const newNodePlacements = (edges, nodeIds, currentNodeIds) => {
-  const known = new Set(currentNodeIds);
+  const existing = new Set(currentNodeIds);
+  const known = new Set(existing);
   const pending = new Set(nodeIds);
   const placements = [];
 
@@ -132,7 +157,13 @@ export const newNodePlacements = (edges, nodeIds, currentNodeIds) => {
     });
   }
 
-  const anchorCounts = new Map();
+  const anchorCounts = edges.reduce((counts, edge) => {
+    if (existing.has(edge.data.source) && existing.has(edge.data.target)) {
+      counts.set(edge.data.source, (counts.get(edge.data.source) || 0) + 1);
+    }
+
+    return counts;
+  }, new Map());
 
   return placements.map(placement => {
     const ordinal = anchorCounts.get(placement.anchorId) || 0;

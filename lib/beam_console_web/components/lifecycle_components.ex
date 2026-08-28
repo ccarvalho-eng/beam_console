@@ -44,6 +44,10 @@ if Code.ensure_loaded?(Phoenix.Component) do
             <div :if={@recorder_status.deferred > 0} class="beam-console-warning">
               {@recorder_status.deferred} eligible process watches are deferred by the reconciliation budget.
             </div>
+            <div :if={@recorder_status.missed_reconciliations > 0} class="beam-console-warning">
+              {@recorder_status.missed_reconciliations} lifecycle reconciliation requests failed or timed out.
+              Later samples continue to reconcile runtime state.
+            </div>
           </div>
 
           <div class="beam-console-lifecycle-scroll">
@@ -62,13 +66,16 @@ if Code.ensure_loaded?(Phoenix.Component) do
                 phx-click={if(event.entity_id, do: "select_entity")}
                 phx-value-id={event.entity_id}
                 disabled={is_nil(event.entity_id)}
+                aria-pressed={
+                  if(event.entity_id && event.entity_id == @selected_id, do: "true", else: "false")
+                }
               >
                 <span class={"beam-console-event-kind is-#{event.kind}"}>{event.kind_label}</span>
                 <span class="beam-console-event-copy">
                   <strong>{event.label}</strong>
                   <small>{event.evidence} · {event.certainty}<span :if={event.reason}> · {event.reason}</span></small>
                 </span>
-                <time>{event.observed_at}</time>
+                <time datetime={event.observed_at_iso}>{event.observed_at}</time>
               </button>
             </div>
 

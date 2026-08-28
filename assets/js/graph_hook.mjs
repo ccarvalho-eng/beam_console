@@ -15,10 +15,7 @@ const BeamConsoleGraph = {
     });
 
     this.cy.on("tap", "node", event => this.pushEvent("select_entity", { id: event.target.id() }));
-    this.resizeObserver = new ResizeObserver(() => {
-      this.cy?.resize();
-      if (this.fitPending) this.scheduleFit();
-    });
+    this.resizeObserver = new ResizeObserver(() => this.resizeGraph());
     this.resizeObserver.observe(this.el);
     this.handleEvent("beam_console_graph", payload => this.replaceGraph(payload));
     this.pushEvent("request_graph", {});
@@ -69,7 +66,7 @@ const BeamConsoleGraph = {
       return;
     }
 
-    if (this.sequence > 0 && !focusChanged && !this.requiresRelayout(elements)) {
+    if (graphUpdateMode(this.sequence, focusChanged) === "patch") {
       this.patchTopology(elements);
     } else {
       this.layoutGraph(elements);
@@ -81,14 +78,12 @@ const BeamConsoleGraph = {
     this.focus = payload.focus;
     this.topologySignature = topologySignature;
   },
-  requiresRelayout(elements) {
-    const incoming = new Set(elements.filter(element => !element.data.source).map(element => element.data.id));
-    const current = new Set(this.cy.nodes().map(node => node.id()));
-
-    const changed = [...incoming].filter(id => !current.has(id)).length +
-      [...current].filter(id => !incoming.has(id)).length;
-    const baseline = Math.max(incoming.size, current.size, 1);
-    return changed >= 8 && changed / baseline >= 0.25;
+  resizeGraph() {
+    if (!this.cy) return;
+    const viewport = { zoom: this.cy.zoom(), pan: { ...this.cy.pan() } };
+    this.cy.resize();
+    if (this.fitPending) this.scheduleFit();
+    else if (this.sequence > 0) this.cy.viewport(viewport);
   },
   layoutGraph(elements) {
     this.cy.elements().remove();
