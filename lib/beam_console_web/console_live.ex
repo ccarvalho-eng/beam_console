@@ -19,6 +19,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     alias BeamConsole.ApplicationTreeConfig
     alias BeamConsole.Recorder.Status, as: RecorderStatus
+    alias BeamConsole.Recording.Control, as: RecordingControl
+    alias BeamConsole.Recording.Status, as: RecordingStatus
     alias BeamConsole.Snapshot
     alias BeamConsoleWeb.Console.ActivityPresenter
     alias BeamConsoleWeb.Console.ApplicationTreePresenter
@@ -29,6 +31,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     alias BeamConsoleWeb.Console.Params
     alias BeamConsoleWeb.Console.Paths
     alias BeamConsoleWeb.Console.RecorderClient
+    alias BeamConsoleWeb.Console.RecordingControlClient
     alias BeamConsoleWeb.Console.RuntimePresenter
     alias BeamConsoleWeb.Console.SelectionState
     alias BeamConsoleWeb.Graph
@@ -62,6 +65,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:collector_retry_timer, nil)
         |> assign(:collector_retry_token, nil)
         |> assign(:recorder_status, %RecorderStatus{})
+        |> assign(:recording_status, %RecordingStatus{paused?: false, revision: 0})
+        |> assign(:recording_control_available?, false)
         |> assign(:recorder_label, "Inactive")
         |> assign(:process_count, 0)
         |> assign(:process_matching_count, 0)
@@ -160,27 +165,44 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_event("toggle_recording", _params, socket) do
       result =
-        case socket.assigns.recorder_status.activity do
-          :recording -> RecorderClient.pause()
-          _other -> RecorderClient.resume()
+        case socket.assigns.recording_status.paused? do
+          true -> RecordingControlClient.resume()
+          false -> RecordingControlClient.pause()
         end
 
       case result do
         {:ok, status} ->
           socket =
             socket
-            |> assign_recorder_status(status)
+            |> assign(:recording_status, status)
+            |> assign(:recording_control_available?, true)
+            |> assign_current_recorder_status()
             |> load_lifecycle()
             |> load_stats()
 
           {:noreply, socket}
 
         {:error, reason} when reason in [:timeout, :unavailable] ->
-          {:noreply, assign_recorder_unavailable(socket)}
+          {:noreply, assign(socket, :recording_control_available?, false)}
       end
     end
 
     @impl Phoenix.LiveView
+    def handle_info(
+          {RecordingControl, %RecordingStatus{} = status},
+          socket
+        ) do
+      socket =
+        socket
+        |> assign(:recording_status, status)
+        |> assign(:recording_control_available?, true)
+        |> assign_current_recorder_status()
+        |> load_lifecycle()
+        |> load_stats()
+
+      {:noreply, socket}
+    end
+
     def handle_info({:beam_console_snapshot, sequence}, socket) do
       case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
         {:ok, snapshot} ->
@@ -241,7 +263,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             filter_form={@filter_form}
             tab={@tab}
             tab_paths={@tab_paths}
-            recorder_activity={@recorder_status.activity}
+            recording_paused?={@recording_status.paused?}
+            recording_control_available?={@recording_control_available?}
             refresh_pending?={@graph_refresh_pending?}
           />
 
@@ -314,6 +337,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp subscribe_collector(socket) do
+      socket = subscribe_recording_control(socket)
+
       case Process.whereis(BeamConsole.Collector) do
         collector when is_pid(collector) ->
           subscribe_to_collector(socket, collector)
@@ -466,7 +491,32 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       socket
       |> assign(:status_label, status_label)
       |> assign(:status_state, status_state)
+      |> assign_current_recording_status()
       |> assign_current_recorder_status()
+    end
+
+    defp assign_current_recording_status(socket) do
+      case RecordingControlClient.status() do
+        {:ok, status} ->
+          socket
+          |> assign(:recording_status, status)
+          |> assign(:recording_control_available?, true)
+
+        {:error, reason} when reason in [:timeout, :unavailable] ->
+          assign(socket, :recording_control_available?, false)
+      end
+    end
+
+    defp subscribe_recording_control(socket) do
+      case RecordingControlClient.subscribe() do
+        {:ok, status} ->
+          socket
+          |> assign(:recording_status, status)
+          |> assign(:recording_control_available?, true)
+
+        {:error, reason} when reason in [:timeout, :unavailable] ->
+          assign(socket, :recording_control_available?, false)
+      end
     end
 
     defp assign_current_recorder_status(socket) do
@@ -480,6 +530,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp assign_recorder_status(socket, recorder_status) do
+      recorder_status = reflect_control_pause(recorder_status, socket.assigns.recording_status)
+
       socket
       |> assign(:recorder_status, recorder_status)
       |> assign(:recorder_label, LifecyclePresenter.activity_label(recorder_status))
@@ -489,6 +541,21 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       socket
       |> assign(:recorder_status, %RecorderStatus{})
       |> assign(:recorder_label, "Unavailable")
+    end
+
+    defp reflect_control_pause(recorder_status, %RecordingStatus{paused?: true}) do
+      %{
+        recorder_status
+        | activity: :paused,
+          active?: false,
+          paused?: true,
+          watched: 0,
+          pending_correlations: 0
+      }
+    end
+
+    defp reflect_control_pause(recorder_status, %RecordingStatus{paused?: false}) do
+      recorder_status
     end
 
     defp load_lifecycle(socket) do

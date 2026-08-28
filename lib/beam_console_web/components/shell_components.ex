@@ -10,7 +10,8 @@ if Code.ensure_loaded?(Phoenix.Component) do
     attr(:filter_form, :map, required: true)
     attr(:tab, :atom, required: true)
     attr(:tab_paths, :map, required: true)
-    attr(:recorder_activity, :atom, required: true)
+    attr(:recording_paused?, :boolean, required: true)
+    attr(:recording_control_available?, :boolean, required: true)
     attr(:refresh_pending?, :boolean, default: false)
 
     @doc "Renders the dashboard header with tabs, recording controls, refresh, and theme selection."
@@ -87,7 +88,11 @@ if Code.ensure_loaded?(Phoenix.Component) do
             aria-live="polite"
             aria-atomic="true"
           >
-            {status_announcement(@status_state)}
+            {status_announcement(
+              @status_state,
+              @recording_paused?,
+              @recording_control_available?
+            )}
           </span>
 
           <.form
@@ -119,18 +124,14 @@ if Code.ensure_loaded?(Phoenix.Component) do
 
           <button
             id="beam-console-recorder-control"
-            class={["beam-console-icon-button", @recorder_activity == :recording && "is-recording"]}
+            class={["beam-console-icon-button", not @recording_paused? && "is-recording"]}
             phx-click="toggle_recording"
-            aria-label={
-              if(@recorder_activity == :recording, do: "Pause recording", else: "Resume recording")
-            }
-            data-tooltip={
-              if(@recorder_activity == :recording, do: "Pause recording", else: "Resume recording")
-            }
-            aria-pressed={if(@recorder_activity == :recording, do: "true", else: "false")}
+            disabled={not @recording_control_available?}
+            aria-label={recording_control_label(@recording_paused?, @recording_control_available?)}
+            data-tooltip={recording_control_label(@recording_paused?, @recording_control_available?)}
           >
             <svg
-              :if={@recorder_activity == :recording}
+              :if={not @recording_paused?}
               viewBox="0 0 24 24"
               fill="none"
               aria-hidden="true"
@@ -139,7 +140,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
               <rect x="14" y="6" width="3" height="12" rx="1" />
             </svg>
             <svg
-              :if={@recorder_activity != :recording}
+              :if={@recording_paused?}
               viewBox="0 0 24 24"
               fill="none"
               aria-hidden="true"
@@ -211,16 +212,46 @@ if Code.ensure_loaded?(Phoenix.Component) do
       ]
     end
 
-    defp status_announcement(:live) do
+    defp recording_control_label(_paused?, false) do
+      "Recording control unavailable"
+    end
+
+    defp recording_control_label(true, true) do
+      "Resume recording"
+    end
+
+    defp recording_control_label(false, true) do
+      "Pause recording"
+    end
+
+    defp status_announcement(status_state, paused?, available?) do
+      runtime = runtime_status_announcement(status_state)
+      recording = recording_status_announcement(paused?, available?)
+      "#{runtime}. #{recording}"
+    end
+
+    defp runtime_status_announcement(:live) do
       "Runtime sampling is live"
     end
 
-    defp status_announcement(:loading) do
+    defp runtime_status_announcement(:loading) do
       "Runtime sampling is starting"
     end
 
-    defp status_announcement(:stale) do
+    defp runtime_status_announcement(:stale) do
       "Runtime sampling is stale"
+    end
+
+    defp recording_status_announcement(_paused?, false) do
+      "Lifecycle recording control is unavailable"
+    end
+
+    defp recording_status_announcement(true, true) do
+      "Lifecycle recording is paused"
+    end
+
+    defp recording_status_announcement(false, true) do
+      "Lifecycle recording is active"
     end
   end
 end

@@ -8,6 +8,7 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
 
   setup do
     start_supervised!(@endpoint)
+    BeamConsole.Recording.resume()
 
     {:ok, snapshot} = BeamConsole.subscribe()
 
@@ -21,7 +22,10 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
         BeamConsole.latest_snapshot()
       end
 
-    on_exit(&BeamConsole.unsubscribe/0)
+    on_exit(fn ->
+      BeamConsole.Recording.resume()
+      BeamConsole.unsubscribe()
+    end)
 
     %{snapshot: snapshot}
   end
@@ -164,6 +168,26 @@ defmodule BeamConsoleWeb.ConsoleLiveTest do
 
     render_click(view, "toggle_recording", %{})
     assert has_element?(view, "#beam-console-recorder-control[aria-label='Pause recording']")
+  end
+
+  test "shares authoritative recording control across connected views" do
+    {:ok, first, _html} = live(build_conn(), "/beam/lifecycle")
+    {:ok, second, _html} = live(build_conn(), "/beam/runtime")
+
+    render_click(first, "toggle_recording", %{})
+
+    assert eventually(fn ->
+             has_element?(
+               second,
+               "#beam-console-recorder-control[aria-label='Resume recording']"
+             )
+           end)
+
+    render_click(second, "toggle_recording", %{})
+
+    assert eventually(fn ->
+             has_element?(first, "#beam-console-recorder-control[aria-label='Pause recording']")
+           end)
   end
 
   test "does not retain full runtime snapshots in LiveView assigns" do
