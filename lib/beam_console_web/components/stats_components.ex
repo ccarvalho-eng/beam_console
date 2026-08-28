@@ -78,7 +78,13 @@ if Code.ensure_loaded?(Phoenix.Component) do
           </div>
 
           <div class="beam-console-recorder-summary beam-console-runtime-summary">
-            <div><span>Processes</span><strong>{@summary.process_count}</strong></div>
+            <div>
+              <span>Processes</span>
+              <strong>{@summary.process_count}</strong>
+              <small :if={@summary.inspected_process_count < @summary.process_count}>
+                {@summary.inspected_process_count} inspected by the bounded collector
+              </small>
+            </div>
             <div><span>Supervisors</span><strong>{@summary.supervisor_count}</strong></div>
             <div
               id="beam-console-atom-usage"

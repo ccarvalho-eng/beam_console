@@ -6,7 +6,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
   and the last subscriber removes them. In `:always` mode the recorder remains
   active for the application lifetime. Snapshot observations are consumed from
   the collector's existing supervision traversal; this process never calls a
-  supervisor or retains a runtime snapshot.
+  supervisor or retains a runtime snapshot. Reconciliation refreshes cross the
+  runtime boundary through an injected, bounded requester.
   """
 
   use GenServer
@@ -16,6 +17,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
   alias BeamConsole.Lifecycle.Event
   alias BeamConsole.Lifecycle.Observation
   alias BeamConsole.Lifecycle.PendingExit
+  alias BeamConsole.Lifecycle.RefreshRequest
   alias BeamConsole.Lifecycle.Recorder.State
   alias BeamConsole.Lifecycle.Watch
   alias BeamConsole.ReasonSummary
@@ -38,7 +40,17 @@ defmodule BeamConsole.Lifecycle.Recorder do
     :replacement_observed
   ]
 
-  @doc "Starts a lifecycle recorder with optional name, limits, clocks, and collector overrides."
+  @max_missed_reconciliations 999_999
+  @default_collector :"Elixir.BeamConsole.Collector"
+
+  @doc """
+  Starts a lifecycle recorder with optional configuration and runtime collaborators.
+
+  The optional zero-arity `:refresh_requester` runs outside the recorder
+  process and is bounded by `:refresh_timeout`, which defaults to 250
+  milliseconds. The existing `:collector` option remains supported with its
+  original asynchronous refresh protocol.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options \\ []) do
     name = Keyword.get(options, :name, __MODULE__)
@@ -58,15 +70,15 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   @doc "Pauses recording until an operator explicitly resumes it."
-  @spec pause(GenServer.server()) :: Status.t()
-  def pause(server \\ __MODULE__) do
-    GenServer.call(server, :pause)
+  @spec pause(GenServer.server(), timeout()) :: Status.t()
+  def pause(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :pause, timeout)
   end
 
   @doc "Resumes recording when subscriber or always-on demand is present."
-  @spec resume(GenServer.server()) :: Status.t()
-  def resume(server \\ __MODULE__) do
-    GenServer.call(server, :resume)
+  @spec resume(GenServer.server(), timeout()) :: Status.t()
+  def resume(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :resume, timeout)
   end
 
   @doc "Reconciles one bounded private observation batch from a completed collector frame."
@@ -77,24 +89,24 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   @doc "Returns PID-free recorder activity, coverage, and bounded-history statistics."
-  @spec status(GenServer.server()) :: status()
-  def status(server \\ __MODULE__) do
-    GenServer.call(server, :status)
+  @spec status(GenServer.server(), timeout()) :: status()
+  def status(server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, :status, timeout)
   end
 
   @doc "Returns a newest-first bounded lifecycle-event window with omission metadata."
-  @spec events(keyword(), GenServer.server()) :: Query.t() | query_error()
-  def events(options \\ [], server \\ __MODULE__) do
+  @spec events(keyword(), GenServer.server(), timeout()) :: Query.t() | query_error()
+  def events(options \\ [], server \\ __MODULE__, timeout \\ 5_000) do
     with :ok <- validate_query_options(options, :events) do
-      GenServer.call(server, {:events, options})
+      GenServer.call(server, {:events, options}, timeout)
     end
   end
 
   @doc "Returns newest aggregate recorder frames under the configured history cap."
-  @spec samples(keyword(), GenServer.server()) :: Query.t() | query_error()
-  def samples(options \\ [], server \\ __MODULE__) do
+  @spec samples(keyword(), GenServer.server(), timeout()) :: Query.t() | query_error()
+  def samples(options \\ [], server \\ __MODULE__, timeout \\ 5_000) do
     with :ok <- validate_query_options(options, :samples) do
-      GenServer.call(server, {:samples, options})
+      GenServer.call(server, {:samples, options}, timeout)
     end
   end
 
@@ -103,11 +115,14 @@ defmodule BeamConsole.Lifecycle.Recorder do
     config = recorder_config(Keyword.get(options, :config))
     monotonic_clock = Keyword.get(options, :monotonic_clock, &monotonic_ms/0)
     system_clock = Keyword.get(options, :system_clock, &system_ms/0)
+    refresh_timeout = refresh_timeout!(Keyword.get(options, :refresh_timeout, 250))
+    refresh_requester = refresh_requester!(options)
 
     state = %State{
       config: config,
       history: History.new(config),
-      collector: Keyword.get(options, :collector, BeamConsole.Collector),
+      refresh_requester: refresh_requester,
+      refresh_timeout: refresh_timeout,
       monotonic_clock: monotonic_clock,
       system_clock: system_clock,
       demanded?: config.mode == :always
@@ -130,7 +145,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
   def handle_call(:resume, _from, state) do
     state = %{state | paused?: false}
     state = if state.demanded?, do: start_recording(state), else: state
-    maybe_request_refresh(state)
+    state = maybe_schedule_reconciliation(state)
     {:reply, status_from_state(state), state}
   end
 
@@ -203,6 +218,29 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   @impl GenServer
+  def handle_info(
+        {RefreshRequest, requester, outcome},
+        %State{refresh_request: %{pid: requester}} = state
+      ) do
+    {:noreply, store_refresh_outcome(state, outcome)}
+  end
+
+  def handle_info(
+        {:refresh_request_timeout, requester},
+        %State{refresh_request: %{pid: requester}} = state
+      ) do
+    :ok = RefreshRequest.cancel(requester)
+    {:noreply, mark_refresh_timeout(state)}
+  end
+
+  def handle_info(
+        {:DOWN, monitor_ref, :process, _requester, _reason},
+        %State{refresh_request: %{monitor_ref: monitor_ref} = request} = state
+      ) do
+    outcome = if request.timed_out?, do: :error, else: request.outcome || :error
+    {:noreply, complete_refresh_request(state, outcome)}
+  end
+
   def handle_info({:DOWN, reference, :process, _pid, reason}, state) do
     case Map.pop(state.watches_by_ref, reference) do
       {nil, _watches_by_ref} ->
@@ -230,11 +268,8 @@ defmodule BeamConsole.Lifecycle.Recorder do
   end
 
   def handle_info(:reconcile_after_down, state) do
-    if state.active? and state.collector do
-      BeamConsole.Collector.refresh(state.collector)
-    end
-
-    {:noreply, %{state | reconcile_scheduled?: false}}
+    state = %{state | reconcile_scheduled?: false}
+    {:noreply, maybe_start_refresh_request(state)}
   end
 
   def handle_info(_message, state) do
@@ -675,6 +710,93 @@ defmodule BeamConsole.Lifecycle.Recorder do
     %{state | reconcile_scheduled?: true}
   end
 
+  defp maybe_schedule_reconciliation(%State{active?: true, refresh_requester: requester} = state)
+       when is_function(requester, 0) do
+    schedule_reconciliation(state)
+  end
+
+  defp maybe_schedule_reconciliation(state) do
+    state
+  end
+
+  defp maybe_start_refresh_request(%State{active?: false} = state) do
+    state
+  end
+
+  defp maybe_start_refresh_request(%State{refresh_requester: nil} = state) do
+    state
+  end
+
+  defp maybe_start_refresh_request(%State{refresh_request: request} = state)
+       when not is_nil(request) do
+    %{state | refresh_pending?: true}
+  end
+
+  defp maybe_start_refresh_request(state) do
+    {pid, monitor_ref} = RefreshRequest.start(self(), state.refresh_requester)
+
+    timeout_ref =
+      Process.send_after(
+        self(),
+        {:refresh_request_timeout, pid},
+        state.refresh_timeout
+      )
+
+    request = %{
+      pid: pid,
+      monitor_ref: monitor_ref,
+      timeout_ref: timeout_ref,
+      outcome: nil,
+      timed_out?: false
+    }
+
+    %{state | refresh_request: request}
+  end
+
+  defp store_refresh_outcome(%State{refresh_request: request} = state, outcome) do
+    cancel_refresh_timeout(request.timeout_ref)
+    %{state | refresh_request: %{request | outcome: outcome}}
+  end
+
+  defp mark_refresh_timeout(%State{refresh_request: request} = state) do
+    %{state | refresh_request: %{request | timed_out?: true}}
+  end
+
+  defp complete_refresh_request(state, outcome) do
+    cancel_refresh_timeout(state.refresh_request.timeout_ref)
+
+    state = %{
+      state
+      | refresh_request: nil,
+        missed_reconciliations:
+          min(
+            state.missed_reconciliations + missed_reconciliation_increment(outcome),
+            @max_missed_reconciliations
+          )
+    }
+
+    if state.refresh_pending? and state.active? do
+      state
+      |> Map.put(:refresh_pending?, false)
+      |> schedule_reconciliation()
+    else
+      %{state | refresh_pending?: false}
+    end
+  end
+
+  defp cancel_refresh_timeout(timeout_ref) do
+    Process.cancel_timer(timeout_ref)
+    :ok
+  end
+
+  defp missed_reconciliation_increment(:ok) do
+    0
+  end
+
+  defp missed_reconciliation_increment(:error) do
+    1
+  end
+
   defp flush_pending_events(%State{pending_events: []} = state) do
     state
   end
@@ -691,13 +813,43 @@ defmodule BeamConsole.Lifecycle.Recorder do
     %{state | history: history}
   end
 
-  defp maybe_request_refresh(%State{active?: true, collector: collector})
-       when not is_nil(collector) do
-    BeamConsole.Collector.refresh(collector)
+  defp refresh_requester!(options) do
+    case Keyword.fetch(options, :refresh_requester) do
+      {:ok, requester} ->
+        validate_refresh_requester!(requester)
+
+      :error ->
+        collector_requester(Keyword.get(options, :collector, @default_collector))
+    end
   end
 
-  defp maybe_request_refresh(_state) do
-    :ok
+  defp validate_refresh_requester!(nil) do
+    nil
+  end
+
+  defp validate_refresh_requester!(requester) when is_function(requester, 0) do
+    requester
+  end
+
+  defp validate_refresh_requester!(requester) do
+    raise ArgumentError,
+          "refresh requester must be a zero-arity function or nil, got: #{inspect(requester)}"
+  end
+
+  defp collector_requester(nil) do
+    nil
+  end
+
+  defp collector_requester(collector) do
+    fn -> GenServer.cast(collector, :refresh) end
+  end
+
+  defp refresh_timeout!(timeout) when is_integer(timeout) and timeout > 0 do
+    timeout
+  end
+
+  defp refresh_timeout!(timeout) do
+    raise ArgumentError, "refresh timeout must be a positive integer, got: #{inspect(timeout)}"
   end
 
   defp status_from_state(state) do
@@ -713,6 +865,7 @@ defmodule BeamConsole.Lifecycle.Recorder do
       omitted: state.omitted,
       deferred: state.deferred,
       pending_correlations: map_size(state.pending_exits),
+      missed_reconciliations: state.missed_reconciliations,
       history: History.stats(state.history)
     }
   end

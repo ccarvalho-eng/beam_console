@@ -97,6 +97,27 @@ defmodule BeamConsoleWeb.GraphTest do
     assert payload.omitted_nodes == 0
   end
 
+  test "suppresses relationship edges when their selected source has vanished" do
+    snapshot = snapshot_fixture()
+
+    stale_detail = %{
+      id: "proc-vanished",
+      links: [%ProcessRelation{id: "proc-root", label: "Root", kind: :process}],
+      monitors: [],
+      monitored_by: [],
+      relationship_omitted: %{links: 0, monitors: 0, monitored_by: 0}
+    }
+
+    payload =
+      Graph.payload(snapshot,
+        selected_id: "proc-vanished",
+        edge_preset: "relationships",
+        selected_detail: stale_detail
+      )
+
+    refute Enum.any?(payload.elements, &(&1.data[:source] == "proc-vanished"))
+  end
+
   test "consecutive observer tasks produce the same rendered topology" do
     first = observed_graph_topology(31)
     second = observed_graph_topology(32)

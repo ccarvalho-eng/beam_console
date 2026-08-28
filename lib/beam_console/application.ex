@@ -14,7 +14,8 @@ defmodule BeamConsole.Application do
 
     children = [
       {Task.Supervisor, name: BeamConsole.TaskSupervisor},
-      {BeamConsole.Lifecycle.Recorder, config: recorder_config},
+      {BeamConsole.Lifecycle.Recorder,
+       config: recorder_config, refresh_requester: &BeamConsole.Collector.request_reconciliation/0},
       {BeamConsole.Collector,
        lifecycle_recorder: BeamConsole.Lifecycle.Recorder,
        always_record?: recorder_config.mode == :always}

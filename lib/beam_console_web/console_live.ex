@@ -25,10 +25,12 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     alias BeamConsoleWeb.Console.CollectorClient
     alias BeamConsoleWeb.Console.DashboardPresenter
     alias BeamConsoleWeb.Console.LifecyclePresenter
+    alias BeamConsoleWeb.Console.OrderedStream
     alias BeamConsoleWeb.Console.Params
     alias BeamConsoleWeb.Console.Paths
     alias BeamConsoleWeb.Console.RecorderClient
     alias BeamConsoleWeb.Console.RuntimePresenter
+    alias BeamConsoleWeb.Console.SelectionState
     alias BeamConsoleWeb.Graph
 
     @process_limit 150
@@ -73,6 +75,9 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign(:activity_has_samples?, false)
         |> assign(:runtime_summary, empty_runtime_summary())
         |> assign(:runtime_has_samples?, false)
+        |> assign(:process_stream_order, [])
+        |> assign(:lifecycle_stream_ids, MapSet.new())
+        |> assign(:mover_stream_order, [])
         |> assign(:filter_form, to_form(%{"q" => ""}, as: :filters))
         |> stream(:processes, [])
         |> stream(:lifecycle_events, [])
@@ -117,7 +122,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           params = %{socket.assigns.params | selected_id: selected_id}
           {:noreply, push_patch(socket, to: current_path(socket, params))}
 
-        {:error, :unavailable} ->
+        {:error, reason} when reason in [:timeout, :unavailable] ->
           {:noreply, collector_unavailable(socket)}
       end
     end
@@ -142,9 +147,14 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_event("refresh", _params, socket) do
       case CollectorClient.refresh(socket.assigns.collector_pid) do
-        :ok -> {:noreply, assign(socket, :graph_refresh_pending?, true)}
-        {:error, :rate_limited} -> {:noreply, socket}
-        {:error, :unavailable} -> {:noreply, collector_unavailable(socket)}
+        :ok ->
+          {:noreply, assign(socket, :graph_refresh_pending?, true)}
+
+        {:error, :rate_limited} ->
+          {:noreply, socket}
+
+        {:error, reason} when reason in [:timeout, :unavailable] ->
+          {:noreply, collector_unavailable(socket)}
       end
     end
 
@@ -165,7 +175,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
           {:noreply, socket}
 
-        {:error, :unavailable} ->
+        {:error, reason} when reason in [:timeout, :unavailable] ->
           {:noreply, assign_recorder_unavailable(socket)}
       end
     end
@@ -182,7 +192,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           _result = CollectorClient.acknowledge(socket.assigns.collector_pid, sequence)
           {:noreply, socket}
 
-        {:error, :unavailable} ->
+        {:error, reason} when reason in [:timeout, :unavailable] ->
           {:noreply, collector_unavailable(socket)}
       end
     end
@@ -223,7 +233,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     def render(assigns) do
       ~H"""
       <div id="beam-console" class="beam-console-shell" phx-hook="BeamConsoleTheme">
-        <div class="beam-console-frame">
+        <div id="beam-console-panels" class="beam-console-frame" phx-hook="BeamConsolePanels">
           <.header
             page_title={@page_title}
             status_label={@status_label}
@@ -276,6 +286,12 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           />
 
           <.inspector selected={@selected} detail={@detail} />
+          <button
+            type="button"
+            class="beam-console-panel-backdrop"
+            data-beam-console-panel-dismiss
+            aria-label="Close runtime panels"
+          ></button>
         </div>
       </div>
       """
@@ -326,7 +342,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             refresh_view(socket, snapshot)
           end
 
-        {:error, :unavailable} ->
+        {:error, reason} when reason in [:timeout, :unavailable] ->
           Process.demonitor(reference, [:flush])
           socket |> assign(:collector_pid, nil) |> schedule_collector_retry()
       end
@@ -364,8 +380,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp maybe_refresh_view(socket) do
       if connected?(socket) do
         case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
-          {:ok, snapshot} -> refresh_view(socket, snapshot)
-          {:error, :unavailable} -> collector_unavailable(socket)
+          {:ok, snapshot} ->
+            refresh_view(socket, snapshot)
+
+          {:error, reason} when reason in [:timeout, :unavailable] ->
+            collector_unavailable(socket)
         end
       else
         socket
@@ -388,15 +407,21 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       |> assign_health()
       |> load_lifecycle()
       |> load_stats()
-      |> stream(:processes, [], reset: true)
+      |> reconcile_ordered_stream(:processes, [], :process_stream_order)
     end
 
     defp refresh_view(socket, %Snapshot{} = snapshot) do
       process_result =
         DashboardPresenter.process_result(snapshot, socket.assigns.query, @process_limit)
 
-      selected = DashboardPresenter.selection(snapshot, socket.assigns.selected_id)
-      detail = selected_detail(snapshot, selected)
+      {selected, detail} =
+        SelectionState.resolve(
+          snapshot,
+          socket.assigns.selected_id,
+          socket.assigns.selected,
+          socket.assigns.detail
+        )
+
       graph_focus_id = stable_graph_focus(snapshot, socket.assigns.graph_focus_id)
       categories = ApplicationTreePresenter.present(snapshot, ApplicationTreeConfig.load())
 
@@ -418,7 +443,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         |> assign_health()
         |> load_lifecycle()
         |> load_stats()
-        |> stream(:processes, process_result.items, reset: true)
+        |> reconcile_ordered_stream(:processes, process_result.items, :process_stream_order)
 
       push_graph(socket, snapshot)
     end
@@ -427,7 +452,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       collector_status =
         case CollectorClient.status(socket.assigns.collector_pid) do
           {:ok, status} -> status
-          {:error, :unavailable} -> nil
+          {:error, reason} when reason in [:timeout, :unavailable] -> nil
         end
 
       {status_label, status_state} =
@@ -446,8 +471,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp assign_current_recorder_status(socket) do
       case RecorderClient.status() do
-        {:ok, status} -> assign_recorder_status(socket, status)
-        {:error, :unavailable} -> assign_recorder_unavailable(socket)
+        {:ok, status} ->
+          assign_recorder_status(socket, status)
+
+        {:error, reason} when reason in [:timeout, :unavailable] ->
+          assign_recorder_unavailable(socket)
       end
     end
 
@@ -474,7 +502,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
               empty?: rows == [],
               omitted: LifecyclePresenter.omitted_count(query)
             })
-            |> stream(:lifecycle_events, rows, reset: true)
+            |> reconcile_stream(:lifecycle_events, rows, :lifecycle_stream_ids)
 
           {:error, _reason} ->
             socket
@@ -514,7 +542,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       socket
       |> assign(:activity_summary, presentation.summary)
       |> assign(:activity_has_samples?, has_samples?)
-      |> stream(:top_movers, presentation.movers, reset: true)
+      |> reconcile_ordered_stream(:top_movers, presentation.movers, :mover_stream_order)
       |> push_event("beam_console_charts", %{
         epoch: socket.assigns.collector_epoch,
         revision: socket.assigns.sequence,
@@ -536,26 +564,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       })
     end
 
-    defp selected_detail(_snapshot, %{kind: kind}) when kind != :process do
-      nil
-    end
-
-    defp selected_detail(snapshot, %{id: selected_id, kind: :process}) do
-      case BeamConsole.detail(snapshot, selected_id) do
-        {:ok, detail} -> detail
-        {:error, _reason} -> nil
-      end
-    end
-
-    defp selected_detail(_snapshot, _selected) do
-      nil
-    end
-
     defp push_latest_graph(socket) do
       case CollectorClient.latest_snapshot(socket.assigns.collector_pid) do
-        {:ok, %Snapshot{} = snapshot} -> push_graph(socket, snapshot)
-        {:ok, nil} -> socket
-        {:error, :unavailable} -> collector_unavailable(socket)
+        {:ok, %Snapshot{} = snapshot} ->
+          push_graph(socket, snapshot)
+
+        {:ok, nil} ->
+          socket
+
+        {:error, reason} when reason in [:timeout, :unavailable] ->
+          collector_unavailable(socket)
       end
     end
 
@@ -621,6 +639,60 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       "Runtime"
     end
 
+    defp reconcile_stream(socket, stream_name, items, ids_assign) do
+      previous_ids = Map.fetch!(socket.assigns, ids_assign)
+      current_ids = MapSet.new(items, & &1.id)
+
+      socket =
+        previous_ids
+        |> MapSet.difference(current_ids)
+        |> Enum.reduce(socket, fn id, acc ->
+          stream_delete(acc, stream_name, %{id: id})
+        end)
+
+      socket =
+        items
+        |> Enum.with_index()
+        |> Enum.reduce(socket, fn {item, index}, acc ->
+          stream_insert(acc, stream_name, item, at: index)
+        end)
+
+      assign(socket, ids_assign, current_ids)
+    end
+
+    defp reconcile_ordered_stream(socket, stream_name, items, order_assign) do
+      previous_ids = Map.fetch!(socket.assigns, order_assign)
+      current_ids = OrderedStream.ids(items)
+
+      socket =
+        if OrderedStream.reordered?(previous_ids, current_ids) do
+          reorder_stream(socket, stream_name, previous_ids, items)
+        else
+          update_stream(socket, stream_name, items)
+        end
+
+      assign(socket, order_assign, current_ids)
+    end
+
+    defp reorder_stream(socket, stream_name, previous_ids, items) do
+      socket =
+        Enum.reduce(previous_ids, socket, fn id, acc ->
+          stream_delete(acc, stream_name, %{id: id})
+        end)
+
+      items
+      |> Enum.with_index()
+      |> Enum.reduce(socket, fn {item, index}, acc ->
+        stream_insert(acc, stream_name, item, at: index)
+      end)
+    end
+
+    defp update_stream(socket, stream_name, items) do
+      Enum.reduce(items, socket, fn item, acc ->
+        stream_insert(acc, stream_name, item)
+      end)
+    end
+
     defp empty_activity_summary do
       %{reductions_per_second: 0, mailbox_delta: 0, memory_delta: 0, omitted: 0}
     end
@@ -628,6 +700,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp empty_runtime_summary do
       %{
         process_count: 0,
+        inspected_process_count: 0,
         supervisor_count: 0,
         ets_count: 0,
         run_queue: nil,

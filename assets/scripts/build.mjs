@@ -10,6 +10,7 @@ const javascriptSources = [
   "assets/js/graph_style.mjs",
   "assets/js/theme_hook.mjs",
   "assets/js/tree_hook.mjs",
+  "assets/js/panel_hook.mjs",
   "assets/js/graph_hook.mjs",
   "assets/js/chart_hook.mjs",
   "assets/js/bootstrap.mjs"

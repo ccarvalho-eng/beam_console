@@ -27,6 +27,40 @@
   gap: 10px;
 }
 
+.beam-console-panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.beam-console-panel-close {
+  display: none;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  background: var(--bc-surface);
+  color: var(--bc-muted);
+  cursor: pointer;
+}
+
+.beam-console-panel-close:hover,
+.beam-console-panel-close:focus-visible {
+  border-color: var(--bc-border-strong);
+  color: var(--bc-text);
+}
+
+.beam-console-panel-close svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-width: 1.75;
+}
+
 .beam-console-panel-heading h2 {
   margin: 0;
   font-size: 13px;
@@ -64,6 +98,49 @@
 
 .beam-console-tree-branch > summary::-webkit-details-marker {
   display: none;
+}
+
+.beam-console-node-row {
+  position: relative;
+}
+
+.beam-console-node-branch {
+  width: 100%;
+}
+
+.beam-console-node-branch > summary {
+  padding-right: 42px;
+}
+
+.beam-console-node-select {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bc-muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.beam-console-node-select:hover,
+.beam-console-node-select:focus-visible {
+  border-color: var(--bc-border-strong);
+  background: var(--bc-surface);
+  color: var(--bc-text);
+}
+
+.beam-console-node-select.is-selected {
+  border-color: var(--bc-accent-border);
+  background: var(--bc-accent-soft);
+  color: var(--bc-accent);
 }
 
 .beam-console-tree-caret {
@@ -176,4 +253,3 @@
   font-weight: 600;
   text-transform: uppercase;
 }
-

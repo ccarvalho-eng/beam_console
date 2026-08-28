@@ -35,6 +35,7 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
   defp summary(nil, query) do
     %{
       process_count: 0,
+      inspected_process_count: 0,
       supervisor_count: 0,
       ets_count: 0,
       run_queue: nil,
@@ -53,6 +54,7 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
     sample
     |> Map.take([
       :process_count,
+      :inspected_process_count,
       :supervisor_count,
       :application_count,
       :ets_count,
@@ -107,6 +109,7 @@ defmodule BeamConsoleWeb.Console.RuntimePresenter do
   defp count_chart(frames, revision, point_limit) do
     fields = [
       {:process_count, "Processes"},
+      {:inspected_process_count, "Inspected processes"},
       {:supervisor_count, "Supervisors"},
       {:application_count, "Applications"},
       {:ets_count, "ETS tables"}

@@ -21,6 +21,7 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
           label: String.t(),
           entity_id: String.t() | nil,
           observed_at: String.t(),
+          observed_at_iso: String.t(),
           evidence: String.t(),
           certainty: String.t(),
           reason: String.t() | nil
@@ -73,6 +74,7 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
       label: event.label || "Runtime event observed",
       entity_id: event.entity_id,
       observed_at: format_time(event.observed_at_ms),
+      observed_at_iso: format_iso8601(event.observed_at_ms),
       evidence: event.evidence |> Atom.to_string() |> String.replace("_", " "),
       certainty: Atom.to_string(event.certainty),
       reason: event.reason && event.reason.text
@@ -102,6 +104,13 @@ defmodule BeamConsoleWeb.Console.LifecyclePresenter do
     case DateTime.from_unix(milliseconds, :millisecond) do
       {:ok, datetime} -> Calendar.strftime(datetime, "%H:%M:%S")
       {:error, _reason} -> "unknown time"
+    end
+  end
+
+  defp format_iso8601(milliseconds) do
+    case DateTime.from_unix(milliseconds, :millisecond) do
+      {:ok, datetime} -> DateTime.to_iso8601(datetime)
+      {:error, _reason} -> ""
     end
   end
 

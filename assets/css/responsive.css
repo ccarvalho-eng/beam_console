@@ -79,6 +79,14 @@
     width: 100%;
   }
 
+  .beam-console-panel-toggle {
+    display: inline-flex;
+  }
+
+  .beam-console-panel-close {
+    display: inline-flex;
+  }
+
   .beam-console-brand {
     flex: 0 0 auto;
   }
@@ -107,9 +115,16 @@
   }
 
   .beam-console-sidebar {
-    max-height: 230px;
-    border-right: 0;
-    border-bottom: 1px solid var(--bc-border);
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(88vw, 360px);
+    border-right: 1px solid var(--bc-border);
+    box-shadow: 18px 0 42px rgb(15 23 42 / 22%);
+    transform: translateX(-105%);
+    transition: transform 160ms ease;
   }
 
   .beam-console-main {
@@ -155,7 +170,36 @@
   }
 
   .beam-console-inspector {
-    min-height: 340px;
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(90vw, 390px);
+    min-height: 0;
+    border-top: 0;
+    border-left: 1px solid var(--bc-border);
+    box-shadow: -18px 0 42px rgb(15 23 42 / 22%);
+    transform: translateX(105%);
+    transition: transform 160ms ease;
+  }
+
+  .beam-console-sidebar.is-mobile-open,
+  .beam-console-inspector.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .beam-console-panel-backdrop {
+    position: fixed;
+    z-index: 35;
+    inset: 0;
+    border: 0;
+    background: rgb(15 23 42 / 42%);
+    cursor: default;
+  }
+
+  .beam-console-frame.has-mobile-panel .beam-console-panel-backdrop {
+    display: block;
   }
 
   .beam-console-recorder-summary {

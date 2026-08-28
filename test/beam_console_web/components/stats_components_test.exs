@@ -13,6 +13,7 @@ if Code.ensure_loaded?(Phoenix.LiveViewTest) do
         atom_utilization: 11.77,
         collector_partial?: false,
         ets_count: 12,
+        inspected_process_count: 300,
         process_count: 345,
         run_queue: 1,
         supervisor_count: 23
@@ -26,6 +27,7 @@ if Code.ensure_loaded?(Phoenix.LiveViewTest) do
 
       assert html =~ ">123,456</strong>"
       assert html =~ ">23</strong>"
+      assert html =~ "300 inspected by the bounded collector"
       assert html =~ "of 1,048,576 · 11.77% used"
       assert html =~ "Atoms persist for the VM lifetime."
       assert html =~ ~s(role="group")

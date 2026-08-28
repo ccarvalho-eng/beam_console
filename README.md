@@ -17,7 +17,7 @@ Add BeamConsole to a Phoenix application:
 ```elixir
 def deps do
   [
-    {:beam_console, "~> 0.2.0"}
+    {:beam_console, "~> 0.3.0"}
   ]
 end
 ```
@@ -79,6 +79,8 @@ To begin recording when the application starts, even before anyone opens the pag
 config :beam_console, :recorder,
   mode: :always
 ```
+
+In `:always` mode, sampling and lifecycle recording remain active with zero connected pages. The collector and recorder both derive their demand from this mode, so ordinary subscriber disconnects and supervised collector or recorder restarts do not silently return recording to subscriber-only behavior. An explicit operator pause still takes precedence until recording is resumed.
 
 Lifecycle recording is observational rather than a lossless trace. Sampling gaps, partial supervision traversal, process limits, watch limits, and dropped history are surfaced in the interface instead of being hidden.
 

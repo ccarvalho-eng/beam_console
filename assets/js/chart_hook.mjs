@@ -13,9 +13,9 @@ const chartColors = element => {
 
 const svgElement = name => document.createElementNS("http://www.w3.org/2000/svg", name);
 
-const renderChart = (root, chart) => {
+const renderChart = (root, chart, previousDomain) => {
   const card = root.querySelector(`[data-chart-id="${CSS.escape(chart.id)}"]`);
-  if (!card) return;
+  if (!card) return previousDomain;
   const svg = card.querySelector("svg");
   const title = card.querySelector("[data-chart-title]");
   const current = card.querySelector("[data-chart-value]");
@@ -27,7 +27,7 @@ const renderChart = (root, chart) => {
   svg.setAttribute("aria-label", chartAriaLabel(chart.title));
   svg.replaceChildren();
   legend.replaceChildren();
-  if (!points.length) return;
+  if (!points.length) return previousDomain;
 
   const width = 640;
   const height = 180;
@@ -36,7 +36,7 @@ const renderChart = (root, chart) => {
   const values = points.map(point => Number(point[1])).filter(Number.isFinite);
   const minTime = Math.min(...times);
   const maxTime = Math.max(...times);
-  const [minValue, maxValue] = chartDomain(values, chart.min, chart.max);
+  const [minValue, maxValue] = chartDomain(values, chart.min, chart.max, previousDomain);
   const x = value => inset + ((value - minTime) / Math.max(maxTime - minTime, 1)) * (width - inset * 2);
   const y = value => height - inset - ((value - minValue) / (maxValue - minValue)) * (height - inset * 2);
   const colors = chartColors(root);
@@ -73,6 +73,8 @@ const renderChart = (root, chart) => {
     key.append(swatch, document.createTextNode(item.label || String(item.key)));
     legend.append(key);
   });
+
+  return [minValue, maxValue];
 };
 
 const BeamConsoleCharts = {
@@ -80,6 +82,7 @@ const BeamConsoleCharts = {
     this.epoch = null;
     this.revision = -1;
     this.payload = null;
+    this.domains = new Map();
     this.themeChanged = () => this.render();
     window.addEventListener("beam-console-theme-change", this.themeChanged);
     this.handleEvent("beam_console_charts", payload => {
@@ -96,6 +99,7 @@ const BeamConsoleCharts = {
       if (decision.reset) {
         this.revision = -1;
         this.payload = null;
+        this.domains.clear();
       }
 
       this.epoch = payload.epoch ?? null;
@@ -108,6 +112,9 @@ const BeamConsoleCharts = {
     window.removeEventListener("beam-console-theme-change", this.themeChanged);
   },
   render() {
-    (this.payload?.charts || []).forEach(chart => renderChart(this.el, chart));
+    (this.payload?.charts || []).forEach(chart => {
+      const domain = renderChart(this.el, chart, this.domains.get(chart.id));
+      if (domain) this.domains.set(chart.id, domain);
+    });
   }
 };

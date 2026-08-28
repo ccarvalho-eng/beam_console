@@ -46,7 +46,49 @@ if Code.ensure_loaded?(Phoenix.Component) do
         </nav>
 
         <div class="beam-console-actions">
-          <span class={["beam-console-status", "is-#{@status_state}"]}>{@status_label}</span>
+          <button
+            type="button"
+            class="beam-console-icon-button beam-console-panel-toggle"
+            data-beam-console-panel-toggle="runtime"
+            aria-controls="beam-console-runtime-panel"
+            aria-expanded="false"
+            aria-label="Open runtime hierarchy"
+            data-tooltip="Runtime hierarchy"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 6h6M4 12h10M4 18h16" />
+              <circle cx="13" cy="6" r="2" />
+              <circle cx="17" cy="12" r="2" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            class="beam-console-icon-button beam-console-panel-toggle"
+            data-beam-console-panel-toggle="inspector"
+            aria-controls="beam-console-inspector-panel"
+            aria-expanded="false"
+            aria-label="Open inspector"
+            data-tooltip="Inspector"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="6" />
+              <path d="m16 16 4 4M11 8v6M8 11h6" />
+            </svg>
+          </button>
+
+          <span class={["beam-console-status", "is-#{@status_state}"]} aria-hidden="true">
+            {@status_label}
+          </span>
+          <span
+            id="beam-console-status-announcement"
+            class="beam-console-visually-hidden"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {status_announcement(@status_state)}
+          </span>
 
           <.form
             for={@filter_form}
@@ -85,6 +127,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             data-tooltip={
               if(@recorder_activity == :recording, do: "Pause recording", else: "Resume recording")
             }
+            aria-pressed={if(@recorder_activity == :recording, do: "true", else: "false")}
           >
             <svg
               :if={@recorder_activity == :recording}
@@ -111,6 +154,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
             phx-click="refresh"
             aria-label="Refresh runtime sample"
             data-tooltip="Refresh sample"
+            aria-busy={if(@refresh_pending?, do: "true", else: "false")}
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -149,6 +193,7 @@ if Code.ensure_loaded?(Phoenix.Component) do
         data-beam-console-theme={@mode}
         aria-label={@label}
         title={@label}
+        aria-pressed="false"
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           {render_slot(@inner_block)}
@@ -164,6 +209,18 @@ if Code.ensure_loaded?(Phoenix.Component) do
         {"Activity", :activity},
         {"Runtime", :runtime}
       ]
+    end
+
+    defp status_announcement(:live) do
+      "Runtime sampling is live"
+    end
+
+    defp status_announcement(:loading) do
+      "Runtime sampling is starting"
+    end
+
+    defp status_announcement(:stale) do
+      "Runtime sampling is stale"
     end
   end
 end

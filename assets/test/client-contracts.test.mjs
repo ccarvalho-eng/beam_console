@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { BeamConsolePanels } from "../js/panel_hook.mjs";
+
 import {
   anchoredNodeOffset,
   chartAriaLabel,
   chartDomain,
   chartHeadline,
   formatChartValue,
+  graphUpdateMode,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
@@ -106,6 +109,21 @@ test("chart values preserve percentage units", () => {
 test("chart domains honor meaningful fixed bounds", () => {
   assert.deepEqual(chartDomain([11.77, 11.78], 0, 100), [0, 100]);
   assert.deepEqual(chartDomain([11, 13], undefined, undefined), [11, 13]);
+  assert.deepEqual(chartDomain([12, 12.5], undefined, undefined, [10, 14]), [11, 13.5]);
+  assert.deepEqual(chartDomain([9, 15], undefined, undefined, [10, 14]), [9, 15]);
+});
+
+test("chart domains recover once after an outlier without rescaling every sample", () => {
+  const recovered = chartDomain([40, 60], undefined, undefined, [0, 100]);
+
+  assert.deepEqual(recovered, [38, 62]);
+  assert.deepEqual(chartDomain([40, 60], undefined, undefined, recovered), recovered);
+});
+
+test("ordinary topology churn patches positions until focus changes", () => {
+  assert.equal(graphUpdateMode(12, false), "patch");
+  assert.equal(graphUpdateMode(12, true), "layout");
+  assert.equal(graphUpdateMode(0, false), "layout");
 });
 
 test("collector epochs reset graph and chart revision guards", () => {
@@ -190,6 +208,22 @@ test("new subtrees are placed parent-first without moving existing nodes", () =>
   assert.equal(placements[1].anchorId, "parent");
 });
 
+test("later graph children reserve offsets already used by an existing sibling", () => {
+  const edges = [
+    { data: { id: "old-edge", source: "parent", target: "old-child" } },
+    { data: { id: "new-edge", source: "parent", target: "new-child" } }
+  ];
+
+  const placements = newNodePlacements(
+    edges,
+    ["new-child"],
+    new Set(["parent", "old-child"])
+  );
+
+  assert.deepEqual(placements[0].offset, anchoredNodeOffset(1));
+  assert.notDeepEqual(placements[0].offset, anchoredNodeOffset(0));
+});
+
 test("mobile layout preserves the tab panel scroll boundary", async () => {
   const stylesheet = await readFile(
     new URL("../../priv/static/beam_console.css", import.meta.url),
@@ -209,6 +243,80 @@ test("mobile layout preserves the tab panel scroll boundary", async () => {
     stylesheet,
     /@media \(max-width: 760px\)[\s\S]*?\.beam-console-graph-stage\s*\{[\s\S]*?grid-template-rows:\s*auto 412px[\s\S]*?\.beam-console-graph-toolbar > div:first-child\s*\{[\s\S]*?display:\s*none/
   );
+});
+
+test("narrow layouts expose runtime and inspector as overlay panels", async () => {
+  const stylesheet = await readFile(
+    new URL("../../priv/static/beam_console.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    stylesheet,
+    /@media \(max-width: 760px\)[\s\S]*?\.beam-console-sidebar\s*\{[\s\S]*?position:\s*fixed[\s\S]*?transform:\s*translateX\(-105%\)/
+  );
+  assert.match(
+    stylesheet,
+    /\.beam-console-frame\.has-mobile-panel \.beam-console-panel-backdrop\s*\{[\s\S]*?display:\s*block/
+  );
+
+  const panelHook = await readFile(
+    new URL("../js/panel_hook.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(panelHook, /panel\.inert = mobile && !active/);
+  assert.match(panelHook, /event\.key === "Tab"/);
+  assert.match(panelHook, /activeToggle\?\.focus\(\)/);
+});
+
+test("mobile panels restore focus when dismissed", () => {
+  let focused = false;
+  let synced = false;
+
+  const hook = {
+    ...BeamConsolePanels,
+    activePanel: "inspector",
+    returnFocus: { focus: () => { focused = true; } },
+    syncPanels: () => { synced = true; }
+  };
+
+  hook.closePanels();
+
+  assert.equal(hook.activePanel, null);
+  assert.equal(synced, true);
+  assert.equal(focused, true);
+});
+
+test("mobile panels wrap keyboard focus inside the active drawer", () => {
+  let firstFocused = false;
+  const first = { closest: () => null, focus: () => { firstFocused = true; } };
+  const last = { closest: () => null, focus: () => {} };
+  const panel = {
+    contains: element => [first, last].includes(element),
+    querySelectorAll: () => [first, last]
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: last };
+
+  try {
+    const hook = {
+      ...BeamConsolePanels,
+      activePanel: "runtime",
+      el: { querySelector: () => panel }
+    };
+    let prevented = false;
+
+    hook.containFocus({
+      preventDefault: () => { prevented = true; },
+      shiftKey: false
+    });
+
+    assert.equal(prevented, true);
+    assert.equal(firstFocused, true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("runtime summary adapts before cards become cramped", async () => {

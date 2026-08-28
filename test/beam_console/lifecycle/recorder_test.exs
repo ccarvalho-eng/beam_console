@@ -116,6 +116,229 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     assert Recorder.resume(recorder).activity == :recording
   end
 
+  test "resume requests a deferred reconciliation when recording demand remains" do
+    owner = self()
+    requester = fn -> send(owner, :refresh_requested) end
+    recorder = start_recorder([mode: :always], refresh_requester: requester)
+
+    assert Recorder.pause(recorder).activity == :paused
+    assert Recorder.resume(recorder).activity == :recording
+    assert_receive :refresh_requested
+  end
+
+  test "a monitored exit requests reconciliation without blocking the recorder" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, {:refresh_request_started, self()})
+
+      receive do
+        :release_refresh -> :ok
+      end
+    end
+
+    recorder =
+      start_recorder(
+        [],
+        refresh_requester: requester,
+        refresh_timeout: 1_000
+      )
+
+    worker = waiting_process()
+    Recorder.activate(recorder)
+    Recorder.observe(frame(1, 1_000), [observation(worker, 1)], [], recorder)
+    assert Recorder.status(recorder).watched == 1
+
+    Process.exit(worker, :kill)
+    assert_receive {:refresh_request_started, requester_pid}
+    assert Recorder.status(recorder).active?
+
+    send(requester_pid, :release_refresh)
+    assert eventually(fn -> Recorder.status(recorder).missed_reconciliations == 0 end)
+  end
+
+  test "requester failures are sanitized and counted without stopping recording" do
+    requester = fn -> raise "private requester failure" end
+    recorder = start_recorder([], refresh_requester: requester)
+    worker = waiting_process()
+
+    Recorder.activate(recorder)
+    Recorder.observe(frame(1, 1_000), [observation(worker, 1)], [], recorder)
+    Process.exit(worker, :kill)
+
+    assert eventually(fn ->
+             status = Recorder.status(recorder)
+             status.active? and status.missed_reconciliations == 1
+           end)
+  end
+
+  test "coalesces a burst of reconciliation requests behind one bounded follow-up" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, {:refresh_request_started, self()})
+
+      receive do
+        :release_refresh -> :ok
+      end
+    end
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        refresh_requester: requester,
+        refresh_timeout: 1_000
+      )
+
+    Enum.each(1..100, fn _index ->
+      send(recorder, :reconcile_after_down)
+    end)
+
+    assert_receive {:refresh_request_started, first_requester}
+    send(first_requester, :release_refresh)
+    assert_receive {:refresh_request_started, second_requester}
+    send(second_requester, :release_refresh)
+    refute_receive {:refresh_request_started, _requester}
+    assert Recorder.status(recorder).missed_reconciliations == 0
+  end
+
+  test "times out a wedged reconciliation requester and remains responsive" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, :wedged_refresh_started)
+      Process.sleep(:infinity)
+    end
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        refresh_requester: requester,
+        refresh_timeout: 20
+      )
+
+    send(recorder, :reconcile_after_down)
+    assert_receive :wedged_refresh_started
+
+    assert eventually(fn ->
+             status = Recorder.status(recorder)
+             status.active? and status.missed_reconciliations == 1
+           end)
+  end
+
+  test "waits for a timed-out request to terminate before starting its coalesced successor" do
+    owner = self()
+
+    requester = fn ->
+      send(owner, {:refresh_callback_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        refresh_requester: requester,
+        refresh_timeout: 20
+      )
+
+    send(recorder, :reconcile_after_down)
+    send(recorder, :reconcile_after_down)
+    assert_receive {:refresh_callback_started, _first_callback}
+
+    first_guardian = :sys.get_state(recorder).refresh_request.pid
+    guardian_ref = Process.monitor(first_guardian)
+
+    assert_receive {:DOWN, ^guardian_ref, :process, ^first_guardian, _reason}
+    assert_receive {:refresh_callback_started, _second_callback}
+  end
+
+  test "terminates an in-flight requester when its recorder stops" do
+    owner = self()
+    name = Module.concat(__MODULE__, "OwnedRequest#{System.unique_integer([:positive])}")
+
+    requester = fn ->
+      send(owner, {:owned_refresh_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    child_spec =
+      Supervisor.child_spec(
+        {Recorder,
+         name: name,
+         config: Config.new!(mode: :always),
+         refresh_requester: requester,
+         refresh_timeout: 1_000},
+        id: name
+      )
+
+    recorder = start_supervised!(child_spec)
+    send(recorder, :reconcile_after_down)
+    assert_receive {:owned_refresh_started, callback}
+    callback_ref = Process.monitor(callback)
+
+    assert :ok = stop_supervised(name)
+    assert_receive {:DOWN, ^callback_ref, :process, ^callback, _reason}
+  end
+
+  test "preserves the compatible collector option's asynchronous refresh protocol" do
+    name = Module.concat(__MODULE__, "LegacyCollector#{System.unique_integer([:positive])}")
+
+    recorder =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Recorder,
+           name: name, config: Config.new!(mode: :always), collector: self(), refresh_timeout: 20},
+          id: name
+        )
+      )
+
+    send(recorder, :reconcile_after_down)
+    assert_receive {:"$gen_cast", :refresh}
+    assert eventually(fn -> Recorder.status(recorder).missed_reconciliations == 0 end)
+  end
+
+  test "counts an unavailable acknowledged collector requester" do
+    missing_collector =
+      Module.concat(__MODULE__, "UnavailableCollector#{System.unique_integer([:positive])}")
+
+    requester = fn ->
+      BeamConsole.Collector.request_reconciliation(missing_collector, 20)
+    end
+
+    recorder =
+      start_recorder(
+        [mode: :always],
+        refresh_requester: requester,
+        refresh_timeout: 50
+      )
+
+    send(recorder, :reconcile_after_down)
+
+    assert eventually(fn ->
+             Recorder.status(recorder).missed_reconciliations == 1
+           end)
+  end
+
+  test "always mode resumes after recorder restart without subscriber demand" do
+    name =
+      Module.concat(__MODULE__, "RestartedAlwaysRecorder#{System.unique_integer([:positive])}")
+
+    config = Config.new!(mode: :always)
+
+    recorder_spec =
+      Supervisor.child_spec(
+        {Recorder, name: name, config: config, refresh_requester: nil},
+        id: name
+      )
+
+    _recorder = start_supervised!(recorder_spec)
+    assert %BeamConsole.Recorder.Status{active?: true, demanded?: true} = Recorder.status(name)
+
+    assert :ok = stop_supervised(name)
+    _replacement_recorder = start_supervised!(recorder_spec)
+    assert %BeamConsole.Recorder.Status{active?: true, demanded?: true} = Recorder.status(name)
+  end
+
   test "caps watch changes per frame and reports omitted and deferred coverage" do
     recorder = start_recorder(watch_limit: 2, reconciliation_limit: 1)
     workers = Enum.map(1..3, fn _index -> waiting_process() end)
@@ -269,7 +492,7 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     assert Enum.any?(result.items, &(&1.kind == :reset))
   end
 
-  defp start_recorder(overrides \\ []) do
+  defp start_recorder(overrides \\ [], runtime_options \\ []) do
     name = Module.concat(__MODULE__, "Recorder#{System.unique_integer([:positive])}")
 
     config =
@@ -288,11 +511,16 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     start_supervised!(
       Supervisor.child_spec(
         {Recorder,
-         name: name,
-         config: config,
-         collector: nil,
-         monotonic_clock: fn -> 1_000 end,
-         system_clock: fn -> 1_700_000_000_000 end},
+         Keyword.merge(
+           [
+             name: name,
+             config: config,
+             refresh_requester: nil,
+             monotonic_clock: fn -> 1_000 end,
+             system_clock: fn -> 1_700_000_000_000 end
+           ],
+           runtime_options
+         )},
         id: name
       )
     )
@@ -342,13 +570,13 @@ defmodule BeamConsole.Lifecycle.RecorderTest do
     |> then(&struct!(Observation, &1))
   end
 
-  defp eventually(fun, attempts \\ 100)
+  defp eventually(fun, attempts \\ 500)
 
   defp eventually(fun, attempts) when attempts > 0 do
     if fun.() do
       true
     else
-      :erlang.yield()
+      Process.sleep(1)
       eventually(fun, attempts - 1)
     end
   end

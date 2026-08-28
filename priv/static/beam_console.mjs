@@ -7,6 +7,7 @@ import {
   chartDomain,
   chartHeadline,
   formatChartValue,
+  graphUpdateMode,
   graphOmissionLabel,
   newNodePlacements,
   readStoredBranchStates,
@@ -167,6 +168,142 @@ const BeamConsoleTree = {
   }
 };
 
+const BeamConsolePanels = {
+  mounted() {
+    this.media = window.matchMedia("(max-width: 760px)");
+    this.activePanel = null;
+    this.returnFocus = null;
+    this.togglePanel = event => {
+      const toggle = event.target.closest("[data-beam-console-panel-toggle]");
+      if (!toggle || !this.media.matches) return;
+      const name = toggle.dataset.beamConsolePanelToggle;
+      if (this.activePanel === name) {
+        this.closePanels();
+        return;
+      }
+
+      this.activePanel = name;
+      this.returnFocus = toggle;
+      this.syncPanels(true);
+    };
+    this.dismissPanel = event => {
+      if (!event.target.closest("[data-beam-console-panel-dismiss]")) return;
+      this.closePanels();
+    };
+    this.keydown = event => {
+      if (event.key === "Escape" && this.activePanel) {
+        this.closePanels();
+      } else if (event.key === "Tab" && this.activePanel) {
+        this.containFocus(event);
+      }
+    };
+    this.breakpointChanged = () => {
+      if (!this.media.matches) this.activePanel = null;
+      this.syncPanels(false);
+    };
+    this.el.addEventListener("click", this.togglePanel);
+    this.el.addEventListener("click", this.dismissPanel);
+    window.addEventListener("keydown", this.keydown);
+    this.media.addEventListener("change", this.breakpointChanged);
+    this.syncPanels(false);
+  },
+  updated() {
+    this.syncPanels(false);
+  },
+  destroyed() {
+    this.el.removeEventListener("click", this.togglePanel);
+    this.el.removeEventListener("click", this.dismissPanel);
+    window.removeEventListener("keydown", this.keydown);
+    this.media.removeEventListener("change", this.breakpointChanged);
+  },
+  closePanels() {
+    const activeToggle = this.returnFocus || this.el.querySelector(
+      `[data-beam-console-panel-toggle="${this.activePanel}"]`
+    );
+    this.activePanel = null;
+    this.returnFocus = null;
+    this.syncPanels(false);
+    activeToggle?.focus();
+  },
+  containFocus(event) {
+    const panel = this.el.querySelector(
+      `[data-beam-console-panel="${this.activePanel}"]`
+    );
+    if (!panel) return;
+
+    const focusable = Array.from(panel.querySelectorAll(
+      "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), " +
+      "textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    )).filter(element => !element.closest("details:not([open])"));
+
+    if (!focusable.length) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable.at(-1);
+
+    if (event.shiftKey && [panel, first].includes(document.activeElement)) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (document.activeElement === last || !panel.contains(document.activeElement))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  },
+  syncPanels(focusPanel) {
+    const mobile = this.media.matches;
+    const modalOpen = mobile && Boolean(this.activePanel);
+
+    this.el.querySelectorAll("[data-beam-console-panel]").forEach(panel => {
+      const active = mobile && panel.dataset.beamConsolePanel === this.activePanel;
+      panel.classList.toggle("is-mobile-open", active);
+      panel.inert = mobile && !active;
+
+      if (panel.inert) panel.setAttribute("inert", "");
+      else panel.removeAttribute("inert");
+
+      if (mobile) panel.setAttribute("aria-hidden", String(!active));
+      else panel.removeAttribute("aria-hidden");
+
+      if (active) {
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+      } else {
+        panel.removeAttribute("role");
+        panel.removeAttribute("aria-modal");
+      }
+
+      if (active && focusPanel) panel.focus();
+    });
+
+    Array.from(this.el.children).forEach(child => {
+      const background = !child.matches(
+        "[data-beam-console-panel], [data-beam-console-panel-dismiss]"
+      );
+      if (!background) return;
+
+      child.inert = modalOpen;
+      if (child.inert) child.setAttribute("inert", "");
+      else child.removeAttribute("inert");
+    });
+
+    this.el.querySelectorAll("[data-beam-console-panel-toggle]").forEach(toggle => {
+      const active = mobile && toggle.dataset.beamConsolePanelToggle === this.activePanel;
+      toggle.setAttribute("aria-expanded", String(active));
+    });
+
+    this.el.classList.toggle("has-mobile-panel", modalOpen);
+  }
+};
+
+export { BeamConsolePanels };
+
 const BeamConsoleGraph = {
   mounted() {
     this.epoch = null;
@@ -184,10 +321,7 @@ const BeamConsoleGraph = {
     });
 
     this.cy.on("tap", "node", event => this.pushEvent("select_entity", { id: event.target.id() }));
-    this.resizeObserver = new ResizeObserver(() => {
-      this.cy?.resize();
-      if (this.fitPending) this.scheduleFit();
-    });
+    this.resizeObserver = new ResizeObserver(() => this.resizeGraph());
     this.resizeObserver.observe(this.el);
     this.handleEvent("beam_console_graph", payload => this.replaceGraph(payload));
     this.pushEvent("request_graph", {});
@@ -238,7 +372,7 @@ const BeamConsoleGraph = {
       return;
     }
 
-    if (this.sequence > 0 && !focusChanged && !this.requiresRelayout(elements)) {
+    if (graphUpdateMode(this.sequence, focusChanged) === "patch") {
       this.patchTopology(elements);
     } else {
       this.layoutGraph(elements);
@@ -250,14 +384,12 @@ const BeamConsoleGraph = {
     this.focus = payload.focus;
     this.topologySignature = topologySignature;
   },
-  requiresRelayout(elements) {
-    const incoming = new Set(elements.filter(element => !element.data.source).map(element => element.data.id));
-    const current = new Set(this.cy.nodes().map(node => node.id()));
-
-    const changed = [...incoming].filter(id => !current.has(id)).length +
-      [...current].filter(id => !incoming.has(id)).length;
-    const baseline = Math.max(incoming.size, current.size, 1);
-    return changed >= 8 && changed / baseline >= 0.25;
+  resizeGraph() {
+    if (!this.cy) return;
+    const viewport = { zoom: this.cy.zoom(), pan: { ...this.cy.pan() } };
+    this.cy.resize();
+    if (this.fitPending) this.scheduleFit();
+    else if (this.sequence > 0) this.cy.viewport(viewport);
   },
   layoutGraph(elements) {
     this.cy.elements().remove();
@@ -369,9 +501,9 @@ const chartColors = element => {
 
 const svgElement = name => document.createElementNS("http://www.w3.org/2000/svg", name);
 
-const renderChart = (root, chart) => {
+const renderChart = (root, chart, previousDomain) => {
   const card = root.querySelector(`[data-chart-id="${CSS.escape(chart.id)}"]`);
-  if (!card) return;
+  if (!card) return previousDomain;
   const svg = card.querySelector("svg");
   const title = card.querySelector("[data-chart-title]");
   const current = card.querySelector("[data-chart-value]");
@@ -383,7 +515,7 @@ const renderChart = (root, chart) => {
   svg.setAttribute("aria-label", chartAriaLabel(chart.title));
   svg.replaceChildren();
   legend.replaceChildren();
-  if (!points.length) return;
+  if (!points.length) return previousDomain;
 
   const width = 640;
   const height = 180;
@@ -392,7 +524,7 @@ const renderChart = (root, chart) => {
   const values = points.map(point => Number(point[1])).filter(Number.isFinite);
   const minTime = Math.min(...times);
   const maxTime = Math.max(...times);
-  const [minValue, maxValue] = chartDomain(values, chart.min, chart.max);
+  const [minValue, maxValue] = chartDomain(values, chart.min, chart.max, previousDomain);
   const x = value => inset + ((value - minTime) / Math.max(maxTime - minTime, 1)) * (width - inset * 2);
   const y = value => height - inset - ((value - minValue) / (maxValue - minValue)) * (height - inset * 2);
   const colors = chartColors(root);
@@ -429,6 +561,8 @@ const renderChart = (root, chart) => {
     key.append(swatch, document.createTextNode(item.label || String(item.key)));
     legend.append(key);
   });
+
+  return [minValue, maxValue];
 };
 
 const BeamConsoleCharts = {
@@ -436,6 +570,7 @@ const BeamConsoleCharts = {
     this.epoch = null;
     this.revision = -1;
     this.payload = null;
+    this.domains = new Map();
     this.themeChanged = () => this.render();
     window.addEventListener("beam-console-theme-change", this.themeChanged);
     this.handleEvent("beam_console_charts", payload => {
@@ -452,6 +587,7 @@ const BeamConsoleCharts = {
       if (decision.reset) {
         this.revision = -1;
         this.payload = null;
+        this.domains.clear();
       }
 
       this.epoch = payload.epoch ?? null;
@@ -464,13 +600,22 @@ const BeamConsoleCharts = {
     window.removeEventListener("beam-console-theme-change", this.themeChanged);
   },
   render() {
-    (this.payload?.charts || []).forEach(chart => renderChart(this.el, chart));
+    (this.payload?.charts || []).forEach(chart => {
+      const domain = renderChart(this.el, chart, this.domains.get(chart.id));
+      if (domain) this.domains.set(chart.id, domain);
+    });
   }
 };
 
 const socketOptions = {
   params: { _csrf_token: csrfToken },
-  hooks: { BeamConsoleCharts, BeamConsoleGraph, BeamConsoleTheme, BeamConsoleTree }
+  hooks: {
+    BeamConsoleCharts,
+    BeamConsoleGraph,
+    BeamConsolePanels,
+    BeamConsoleTheme,
+    BeamConsoleTree
+  }
 };
 if (transport === "longpoll") socketOptions.transport = LongPoll;
 const liveSocket = new LiveSocket(livePath, Socket, socketOptions);
